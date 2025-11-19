@@ -1,0 +1,230 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+strategy("ST_SMA",
+     overlay = true,
+     initial_capital      = 100000,
+     default_qty_type     = strategy.percent_of_equity,
+     default_qty_value    = 50,
+     pyramiding           = 1,
+     commission_type      = strategy.commission.percent,
+     commission_value     = 0.0)
+
+//────────────────────────────────────────────
+// 📌 Inputs: Medias móviles
+//────────────────────────────────────────────
+groupMedias = "Medias móviles"
+
+mainSmaLen = input.int(200, "SMA maestro", minval = 1, group = groupMedias)
+
+showSma20 = input.bool(true, "Mostrar SMA 20", group = groupMedias)
+showSma50 = input.bool(true, "Mostrar SMA 50", group = groupMedias)
+showSma100 = input.bool(true, "Mostrar SMA 100", group = groupMedias)
+showSma200 = input.bool(true, "Mostrar SMA 200", group = groupMedias)
+
+// Cálculo de SMA de referencia
+sma20 = ta.sma(close, 20)
+sma50 = ta.sma(close, 50)
+sma100 = ta.sma(close, 100)
+sma200 = ta.sma(close, 200)
+
+// SMA principal (por defecto 200, pero configurable)
+smaMain = ta.sma(close, mainSmaLen)
+
+// Plots de las MAs
+plot(showSma20 ? sma20 : na, title = "SMA 20", color = color.new(color.blue, 0), linewidth = 1)
+plot(showSma50 ? sma50 : na, title = "SMA 50", color = color.new(color.orange, 0), linewidth = 1)
+plot(showSma100 ? sma100 : na, title = "SMA 100", color = color.new(color.purple, 0), linewidth = 1)
+plot(showSma200 ? sma200 : na, title = "SMA 200", color = color.new(color.red, 0), linewidth = 2)
+
+//────────────────────────────────────────────
+// 📌 Inputs: Entradas y modo de estrategia
+//────────────────────────────────────────────
+groupEntradas = "Entradas"
+
+entryMode = input.string(
+"Cruce + Pendiente + Retest",
+"Modo de entrada",
+options = ["Cruce simple", "Cruce + Pendiente", "Retest", "Cruce + Pendiente + Retest"],
+group = groupEntradas)
+
+allowLongs = input.bool(true, "Permitir largos", group = groupEntradas)
+allowShorts = input.bool(true, "Permitir cortos", group = groupEntradas)
+
+//────────────────────────────────────────────
+// 📌 Pendiente de la SMA (en %)    
+//────────────────────────────────────────────
+groupPend = "Pendiente SMA"
+
+slopeLen = input.int(5, "Velas para pendiente", minval = 1, group = groupPend)
+slopeThrPct = input.float(0.005, "Pendiente (%)", step = 0.001, group = groupPend)
+
+float smaPrev = smaMain[slopeLen]
+float slopePct = smaPrev != 0.0 ? (smaMain - smaPrev) / smaPrev * 100.0 : 0.0
+bool slopeUp = slopePct > slopeThrPct
+bool slopeDown = slopePct < -slopeThrPct
+
+//────────────────────────────────────────────
+// 📌 Filtro de tendencia: distancia + volatilidad
+//────────────────────────────────────────────
+groupFiltros = "Filtros de tendencia"
+
+minDistPct = input.float(0.005, "Distancia SMA (%)", step = 0.001, group = groupFiltros)
+atrLen = input.int(14, "Longitud ATR", minval = 1, group = groupFiltros)
+minAtrPct = input.float(0.10, "ATR mínimo (% del precio)", step = 0.05, group = groupFiltros)
+
+float distPct = math.abs(close - smaMain) / smaMain * 100.0
+bool distOk = distPct >= minDistPct
+
+float atr = ta.atr(atrLen)
+float atrPct = atr / close * 100.0
+bool volOk = atrPct >= minAtrPct
+
+bool filtersOk = distOk and volOk
+
+//────────────────────────────────────────────
+// 📌 Señales base de cruce con SMA principal
+//────────────────────────────────────────────
+bool bullCross = ta.crossover(close, smaMain)
+bool bearCross = ta.crossunder(close, smaMain)
+
+//────────────────────────────────────────────
+// 📌 Retest usando SMA 20/50/100 como zonas válidas
+//────────────────────────────────────────────
+groupRetest = "Retest"
+
+useMultiRetest = input.bool(true, "MultiRetest SMA", group = groupRetest)
+
+// Flags de estado para esperar retest tras un cruce
+var bool bullReadyForRetest = false
+var bool bearReadyForRetest = false
+
+// Activamos flags cuando hay cruces
+if bullCross
+    bullReadyForRetest := true
+    bearReadyForRetest := false
+
+if bearCross
+    bearReadyForRetest := true
+    bullReadyForRetest := false
+
+// Condiciones de precio para retest
+bool bullRetestPriceCond = useMultiRetest ? (low <= sma100 or low <= sma50 or low <= sma20) : (low <= smaMain)
+
+bool bearRetestPriceCond = useMultiRetest ? (high >= sma100 or high >= sma50 or high >= sma20) : (high >= smaMain)
+
+// Retest alcista y bajista
+bool bullRetest = bullReadyForRetest and close > smaMain and bullRetestPriceCond
+bool bearRetest = bearReadyForRetest and close < smaMain and bearRetestPriceCond
+
+// Una vez usado el retest, reseteamos flag
+if bullRetest
+    bullReadyForRetest := false
+if bearRetest
+    bearReadyForRetest := false
+
+//────────────────────────────────────────────
+// 📌 Señales de entrada según modo
+//────────────────────────────────────────────
+bool longSignalRaw = false
+bool shortSignalRaw = false
+
+switch entryMode
+    "Cruce simple" =>
+        longSignalRaw  := bullCross
+        shortSignalRaw := bearCross
+
+    "Cruce + Pendiente" =>
+        longSignalRaw  := bullCross  and slopeUp
+        shortSignalRaw := bearCross and slopeDown
+
+    "Retest" =>
+        longSignalRaw  := bullRetest
+        shortSignalRaw := bearRetest
+
+    "Cruce + Pendiente + Retest" =>
+        longSignalRaw  := bullRetest  and slopeUp
+        shortSignalRaw := bearRetest and slopeDown
+
+bool longSignal = allowLongs and filtersOk and longSignalRaw
+bool shortSignal = allowShorts and filtersOk and shortSignalRaw
+
+//────────────────────────────────────────────
+// 📌 Gestión de salidas: SL/TP % + Flip por cruce
+//────────────────────────────────────────────
+groupSalidas = "Salidas"
+
+exitMode = input.string(
+"SL/TP % + Flip",
+"Modo de salida",
+options = ["Flip SMA", "SL/TP %", "SL/TP % + Flip"],
+group = groupSalidas)
+
+slPct = input.float(0.50, "Stop Loss (%)", minval = 0.0, step = 0.10, group = groupSalidas)
+tpPct = input.float(1.00, "Take Profit (%)", minval = 0.0, step = 0.10, group = groupSalidas)
+
+// Entradas con flip (cambiar de lado al saltar señal opuesta)
+if longSignal and strategy.position_size <= 0
+    strategy.entry("Long", strategy.long)
+
+if shortSignal and strategy.position_size >= 0
+    strategy.entry("Short", strategy.short)
+
+// Cálculo dinámico de SL/TP según posición
+float longStop = na
+float longTP = na
+float shortStop = na
+float shortTP = na
+
+if strategy.position_size > 0
+    longStop := slPct > 0 ? strategy.position_avg_price * (1.0 - slPct / 100.0) : na
+    longTP := tpPct > 0 ? strategy.position_avg_price * (1.0 + tpPct / 100.0) : na
+
+if strategy.position_size < 0
+    shortStop := slPct > 0 ? strategy.position_avg_price * (1.0 + slPct / 100.0) : na
+    shortTP := tpPct > 0 ? strategy.position_avg_price * (1.0 - tpPct / 100.0) : na
+
+// Aplicar SL/TP sólo si el modo lo permite
+useSLTP = exitMode == "Solo SL/TP %" or exitMode == "SL/TP % + Flip SMA"
+
+if useSLTP and strategy.position_size > 0 and (not na(longStop) or not na(longTP))
+    strategy.exit("Long SL/TP", from_entry = "Long", stop = longStop, limit = longTP)
+
+if useSLTP and strategy.position_size < 0 and (not na(shortStop) or not na(shortTP))
+    strategy.exit("Short SL/TP", from_entry = "Short", stop = shortStop, limit = shortTP)
+
+//────────────────────────────────────────────
+// 📌 Alertas (entrada / TP / SL) con un solo interruptor
+//────────────────────────────────────────────
+groupAlerts = "Alertas"
+
+enableAlerts = input.bool(true, "Activar todas las alertas", group = groupAlerts)
+
+// Detección de toques de SL/TP (aproximado) para lanzar alertas
+bool hitLongTP = strategy.position_size > 0 and useSLTP and not na(longTP) and high >= longTP
+bool hitLongSL = strategy.position_size > 0 and useSLTP and not na(longStop) and low <= longStop
+bool hitShortTP = strategy.position_size < 0 and useSLTP and not na(shortTP) and low <= shortTP
+bool hitShortSL = strategy.position_size < 0 and useSLTP and not na(shortStop) and high >= shortStop
+
+if enableAlerts
+// Entradas
+    if longSignal
+        alert("ENTRADA LARGA: " + syminfo.ticker + " | SMA " + str.tostring(mainSmaLen) + " | Modo: " + entryMode, alert.freq_once_per_bar_close)
+    if shortSignal
+        alert("ENTRADA CORTA: " + syminfo.ticker + " | SMA " + str.tostring(mainSmaLen) + " | Modo: " + entryMode, alert.freq_once_per_bar_close)
+//TP y SL
+    if hitLongTP
+        alert("TP LARGO alcanzado en " + syminfo.ticker, alert.freq_once_per_bar_close)
+    if hitLongSL
+        alert("SL LARGO alcanzado en " + syminfo.ticker, alert.freq_once_per_bar_close)
+    if hitShortTP
+        alert("TP CORTO alcanzado en " + syminfo.ticker, alert.freq_once_per_bar_close)
+    if hitShortSL
+        alert("SL CORTO alcanzado en " + syminfo.ticker, alert.freq_once_per_bar_close)
+
+//────────────────────────────────────────────
+// 📌 Marcadores visuales de entradas
+//────────────────────────────────────────────
+plotshape(longSignal, title = "Señal Long", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
+plotshape(shortSignal, title = "Señal Short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.tiny)

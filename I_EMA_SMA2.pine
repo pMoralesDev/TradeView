@@ -1,0 +1,141 @@
+//@version=6
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+indicator("Prueba", overlay=true)
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+
+emaLen = input.int(50,  "Longitud EMA")
+smaLen = input.int(200, "Longitud SMA")
+maxPriceDistPct = input.float(1, "Distancia PRECIO-SMA200 (%)", step=0.1)
+
+// Filtro de pendiente y distancia (se reutiliza para el HTF)
+slopeLen      = input.int(5,    "Velas para pendiente SMA200", minval=1)
+slopeThrPct   = input.float(0.02, "Mín pendiente SMA200 (%)", step=0.01)
+distThrPct    = input.float(0.2, "Distancia mín EMA_SMA (%)", step=0.01)
+
+// Activar - desactivar alertas
+alertLongOn  = input.bool(true, "Activar Largos")
+alertShortOn = input.bool(true, "Activar Cortos")
+
+//────────────────────────────────────────────
+// 📌 INDICADORES
+//────────────────────────────────────────────
+ema50  = ta.ema(close, emaLen)
+sma200 = ta.sma(close, smaLen)
+
+// Distancia actual entre medias (en %)
+distPct2 = math.abs(ema50 - sma200) / close * 100.0
+
+//────────────────────────────────────────────
+// 📌 ESTADOS
+//────────────────────────────────────────────
+
+// Tendencia
+alcista = ema50 > sma200
+bajista = ema50 < sma200
+
+// Cruces
+var bool pendingLong  = false
+var bool pendingShort = false
+
+// Posición abierta
+var bool inLong  = false
+var bool inShort = false
+
+// Cruces
+crossUp   = ta.crossover(ema50, sma200)
+crossDown = ta.crossunder(ema50, sma200)
+
+// Take Profit: cuando se produce el cruce contrario con una posición abierta
+tpLong  = inLong  and crossDown 
+tpShort = inShort and crossUp 
+
+// valor de las medias en el momento del cruce
+var float crossPrice  = na
+var float longSlPrice  = na
+var float shortSlPrice = na
+
+// Cuando hay un cruce, marcamos pendiente y guardamos el precio
+if crossUp
+    pendingLong  := true
+    pendingShort := false
+    crossPrice := close
+    longSlPrice  := ema50 - (close * 0.01)
+
+if crossDown
+    pendingShort := true
+    pendingLong  := false
+    crossPrice := close
+    shortSlPrice := ema50 + (close * 0.01)
+
+//Distancia entre precio actual y precio de cruce
+priceDistPct = math.abs(close - crossPrice) / crossPrice * 100.0
+okPriceNearCross = priceDistPct <= maxPriceDistPct
+
+// Cruces "válidos": sólo cuando hay tendencia
+longSignal  =  pendingLong  and ema50 > sma200 and okPriceNearCross
+shortSignal = pendingShort and ema50 < sma200 and okPriceNearCross
+
+// Una vez disparada la señal, limpiamos el pendiente
+if longSignal
+    pendingLong := false
+    inLong      := true
+    inShort     := false
+
+if shortSignal
+    pendingShort := false
+    inShort      := true
+    inLong       := false
+
+//────────────────────────────────────────────
+// 📌 ALERTAS
+//────────────────────────────────────────────
+
+//Con Stop Loos
+if longSignal and alertLongOn
+    slTxt = str.tostring(longSlPrice, format.mintick)
+    sym   = syminfo.ticker
+    tf    = timeframe.period
+    msg   = sym + "📈 COMPRA-" +"\n" + "SL: " + slTxt
+    alert(msg, alert.freq_once_per_bar_close)
+
+if shortSignal and alertShortOn
+    slTxt = str.tostring(shortSlPrice, format.mintick)
+    sym   = syminfo.ticker
+    tf    = timeframe.period
+    msg   = sym +"📉 VENTA-" +"\n" + "SL: " + slTxt
+    alert(msg, alert.freq_once_per_bar_close)
+
+// ALERTAS TAKE PROFIT
+if tpLong
+    sym = syminfo.ticker
+    tf  = timeframe.period
+    msg = "🎯 TAKE PROFIT - " + sym
+    alert(msg, alert.freq_once_per_bar_close)
+    inLong := false
+
+if tpShort
+    sym = syminfo.ticker
+    tf  = timeframe.period
+    msg = "🎯 TAKE PROFIT - " + sym
+    alert(msg, alert.freq_once_per_bar_close)
+    inShort := false 
+
+//────────────────────────────────────────────
+// 📌 DIBUJOS
+//────────────────────────────────────────────
+
+plot(ema50,  title="EMA 50",  color=color.yellow, linewidth=1)
+plot(sma200, title="SMA 200", color=color.blue,   linewidth=1)
+
+// Señales sin saltos de línea
+plotshape(longSignal,   title="Cruce alcista", style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.normal)
+plotshape(shortSignal, title="Cruce bajista", style=shape.triangledown, location=location.abovebar,  color=color.red,   size=size.normal)
+
+//Señales de cierre de posición
+plotshape(tpLong,  title="TP largo",  style=shape.circle, location=location.abovebar,  color=color.new(color.green, 0), size=size.tiny)
+plotshape(tpShort, title="TP corto", style=shape.circle, location=location.belowbar, color=color.new(color.red,   0), size=size.tiny)
