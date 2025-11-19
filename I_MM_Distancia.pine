@@ -1,0 +1,59 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+indicator("MM_Distancia", overlay=false)
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+
+emaLen = input.int(50,  "Longitud EMA")
+smaLen = input.int(200, "Longitud SMA")
+
+//------UMBRALES------
+usarUmbralDinamico = input.bool(true, "Usar umbral dinámico")
+umbralFijo = input.float(1.0, "Umbral fijo distancia (%)", step=0.1)
+lenNorm     = input.int(200, "Velas para normalizar", minval=10)
+umbralN  = input.float(0.6, "Umbral normalizado", step=0.05)
+
+//────────────────────────────────────────────
+// 📌 INDICADORES
+//────────────────────────────────────────────
+
+//------Medias Móviles------
+ema  = ta.ema(close, emaLen)
+sma = ta.sma(close, smaLen)
+distPct = (ema - sma) / sma * 100
+
+//------Umbral Dinámico------
+// Max abs de la distancia en las últimas lenNorm velas
+maxAbsDist = ta.highest(math.abs(distPct), lenNorm)
+// Distancia normalizada a [-1, 1]
+distNorm = maxAbsDist != 0.0 ? distPct / maxAbsDist : 0.0
+// Condición de umbral (en unidades normalizadas)
+condUmbral = math.abs(distNorm) > umbralN
+
+//────────────────────────────────────────────
+// 📌 PLOTS
+//────────────────────────────────────────────
+
+plot(distNorm, title="Distancia normalizada", color=color.new(color.orange, 0), linewidth=2)
+
+//------Líneas de referencia------
+hline(0,  "0",  color=color.new(color.gray, 70))
+hline(1,  "+1", color=color.new(color.gray, 70))
+hline(-1, "-1", color=color.new(color.gray, 70))
+
+// Fondo cuando supera el umbral
+bgcolor(condUmbral ? color.new(color.red, 85) : na)
+
+//────────────────────────────────────────────
+// 📌 Análisis técnico
+//────────────────────────────────────────────
+
+//Este indicador nos permite detectar:
+//   Tendencias fuertes
+//   Desacoples grandes entre medias
+//   Evitar señales en zonas laterales
+//   Confirmar impulsos

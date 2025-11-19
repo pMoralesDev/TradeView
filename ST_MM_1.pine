@@ -1,0 +1,90 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+strategy("MM_1",
+     overlay=true,
+     initial_capital=100000,
+     default_qty_type     = strategy.percent_of_equity,
+     default_qty_value    = 50,
+     pyramiding=2,
+     commission_type=strategy.commission.percent,
+     commission_value=0.01)
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+
+emaLen   = input.int(50,  "EMA")
+smaLen   = input.int(200, "SMA")
+lenNorm  = input.int(200, "Velas Normalización", minval=20)
+umbral   = input.float(0.5, "Umbral distNorm", step=0.05)
+slLen    = input.int(20, "Velas Stop Loss", minval=5)
+
+//────────────────────────────────────────────
+// 📌 INDICADORES
+//────────────────────────────────────────────
+
+ema50  = ta.ema(close, emaLen)
+sma200 = ta.sma(close, smaLen)
+
+distPct = (ema50 - sma200) / sma200 * 100.0
+maxAbsDist = ta.highest(math.abs(distPct), lenNorm)
+distNorm   = maxAbsDist != 0.0 ? distPct / maxAbsDist : 0.0
+
+//────────────────────────────────────────────
+// 📌 CONDICIONES DE ENTRADA
+//────────────────────────────────────────────
+
+crossUp   = ta.crossover(close, ema50)
+crossDown = ta.crossunder(close, ema50)
+longReversionCond  = distNorm < -umbral and crossUp
+shortReversionCond = distNorm >  umbral and crossDown
+
+//────────────────────────────────────────────
+// 📌 Gestión de SL/TP
+//────────────────────────────────────────────
+
+var float longSL = na
+var float longTP = na
+var float shortSL = na
+var float shortTP = na
+lowest = ta.lowest(low, slLen)
+highest = ta.highest(high, slLen)
+
+// Entrada largos
+if (longReversionCond and strategy.position_size <= 0)
+    // SL y TP calculados en la vela de entrada
+    longSL := lowest
+    float entryPriceLong = close
+    float riskLong = entryPriceLong - longSL
+    longTP := entryPriceLong + 2.0 * riskLong
+
+    strategy.entry("Long", strategy.long)
+
+// Entrada cortos
+if (shortReversionCond and strategy.position_size >= 0)
+    shortSL := highest
+    float entryPriceShort = close
+    float riskShort = shortSL - entryPriceShort
+    shortTP := entryPriceShort - 2.0 * riskShort
+
+    strategy.entry("Short", strategy.short)
+
+// Salidas
+if (strategy.position_size > 0)
+    strategy.exit("Exit Long", "Long", stop=longSL, limit=longTP)
+
+if (strategy.position_size < 0)
+    strategy.exit("Exit Short", "Short", stop=shortSL, limit=shortTP)
+
+//────────────────────────────────────────────
+// 📌 PLOTS
+//────────────────────────────────────────────
+
+plot(ema50,  title="EMA 50",  color=color.yellow, linewidth=1)
+plot(sma200, title="SMA 200", color=color.blue,   linewidth=1)
+
+// Marcamos las entradas
+plotshape(longReversionCond,  title="Señal Long",  style=shape.triangleup, color=color.lime,   size=size.tiny, location=location.belowbar)
+plotshape(shortReversionCond, title="Señal Short", style=shape.triangledown, color=color.red,    size=size.tiny, location=location.abovebar)
