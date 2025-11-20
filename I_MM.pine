@@ -24,11 +24,23 @@ alertShortOn = input.bool(true, "Activar alerta cortos")
 //-------------------------
 // Medias en timeframe ACTUAL (señales, alertas, etc.)
 //-------------------------
-ema50  = ta.ema(close, emaLen)
-sma200 = ta.sma(close, smaLen)
+ema50  = ta.ema(close, 50)
+ema25  = ta.ema(close, 25)
+ema12  = ta.ema(close, 12)
+ema5  = ta.ema(close, 5)
+sma200 = ta.sma(close, 200)
+sma100 = ta.sma(close, 100)
+sma50 = ta.sma(close, 50)
+sma20 = ta.sma(close, 20)
 
-plot(ema50,  title="EMA 50",  color=color.yellow, linewidth=1)
-plot(sma200, title="SMA 200", color=color.blue,   linewidth=1)
+plot(ema50,  title="EMA 50",  color=color.yellow, linewidth=3)
+plot(ema25,  title="EMA 25",  color=color.orange, linewidth=2)
+plot(ema12,  title="EMA 12",  color=color.yellow,    linewidth=1)
+plot(ema5,  title="EMA 5",   color=color.orange, linewidth=1)
+plot(sma200, title="SMA 200", color=color.blue,   linewidth=3)
+plot(sma100, title="SMA 100", color=color.aqua,   linewidth=2)
+plot(sma50,  title="SMA 50",  color=color.blue, linewidth=1)
+plot(sma20,  title="SMA 20",  color=color.aqua,    linewidth=1)
 
 // Tendencia básica en timeframe actual
 alcista = ema50 > sma200
@@ -54,22 +66,23 @@ var bool inShort = false
 // Calculamos TODO en 15m y lo traemos ya hecho
 
 // 1) Dirección (alcista / bajista) en HTF
-//htfAlcista = request.security( syminfo.tickerid, higherTF, ta.ema(close, emaLen) > ta.sma(close, smaLen) )
-//htfBajista = request.security( syminfo.tickerid, higherTF, ta.ema(close, emaLen) < ta.sma(close, smaLen) )
+htfAlcista = request.security( syminfo.tickerid, higherTF, ta.ema(close, emaLen) > ta.sma(close, smaLen) )
+
+htfBajista = request.security( syminfo.tickerid, higherTF, ta.ema(close, emaLen) < ta.sma(close, smaLen) )
 
 // 2) Pendiente en HTF (se calcula allí)
-//slopePctHTF = request.security( syminfo.tickerid, higherTF, math.abs(ta.sma(close, smaLen) - ta.sma(close, smaLen)[slopeLen]) / close * 100.0)
+slopePctHTF = request.security( syminfo.tickerid, higherTF, math.abs(ta.sma(close, smaLen) - ta.sma(close, smaLen)[slopeLen]) / close * 100.0)
 
 // 3) Distancia EMA–SMA en HTF (se calcula allí)
-//distPctHTF = request.security( syminfo.tickerid, higherTF, math.abs(ta.ema(close, emaLen) - ta.sma(close, smaLen)) / close * 100.0)
+distPctHTF = request.security( syminfo.tickerid, higherTF, math.abs(ta.ema(close, emaLen) - ta.sma(close, smaLen)) / close * 100.0)
 
 // 4) Tendencial vs lateral en HTF
-//trendingHTF = (slopePctHTF > slopeThrPct) and (distPctHTF > distThrPct)
+trendingHTF = (slopePctHTF > slopeThrPct) and (distPctHTF > distThrPct)
 
 // 5) Color del fondo (HTF limpio, sin rayas)
-//trendColorHTF = trendingHTF ? (htfAlcista ? color.new(color.green, 50) : htfBajista ? color.new(color.red, 50) : na) : (mostrarLateral ? color.new(color.black, 92) : na)
+trendColorHTF = trendingHTF ? (htfAlcista ? color.new(color.green, 50) : htfBajista ? color.new(color.red, 50) : na) : (mostrarLateral ? color.new(color.black, 92) : na)
 
-//bgcolor(trendColorHTF)
+bgcolor(trendColorHTF)
 
 // Cruces
 crossUp   = ta.crossover(ema50, sma200)

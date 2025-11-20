@@ -63,13 +63,13 @@ var float shortSlPrice = na
 if crossUp
     pendingLong  := true
     pendingShort := false
-    crossPrice := close
+    crossPrice := sma200
     longSlPrice  := ema50 - (close * 0.01)
 
 if crossDown
     pendingShort := true
     pendingLong  := false
-    crossPrice := close
+    crossPrice := sma200
     shortSlPrice := ema50 + (close * 0.01)
 
 //Distancia entre precio actual y precio de cruce

@@ -8,6 +8,7 @@ indicator("MM_Distancia", overlay=false)
 // 📌 INPUTS
 //────────────────────────────────────────────
 
+//🔹 MEDIAS🔹
 emaLen = input.int(50,  "Longitud EMA")
 smaLen = input.int(200, "Longitud SMA")
 
@@ -29,7 +30,7 @@ ema  = ta.ema(close, emaLen)
 sma = ta.sma(close, smaLen)
 distPct = (ema - sma) / sma * 100
 
-//🔹 Umbral Dinámico🔹 
+//🔹 Umbral Dinámico-Normalizado🔹 
 // Max abs de la distancia en las últimas lenNorm velas
 maxAbsDist = ta.highest(math.abs(distPct), lenNorm)
 // Distancia normalizada a [-1, 1]
@@ -51,7 +52,7 @@ signChanged = signNow != signPrev
 signChangeSeries = signChanged ? 1.0 : 0.0
 
 // nº de cambios de signo en la ventana
-signChangesLastN = ta.sma(signChangeSeries, lenSignWindow) * lenSignWindow
+signChangesLastN = math.sum(signChangeSeries, lenSignWindow)
 
 // tendencia “estable” si hay pocos cambios de signo
 tendEstable = signChangesLastN <= maxSignChanges
@@ -60,20 +61,33 @@ tendEstable = signChangesLastN <= maxSignChanges
 // 📌 SEMÁFORO
 //────────────────────────────────────────────
 
-// Umbrales que hemos fijado
+//🔹 Umbrales🔹
 umbral_tend_fuerte = 0.50
 umbral_tend_normal = 0.30
 umbral_lateral     = 0.20
 
 absMedia = math.abs(distNormMedia)
 
-// Solo consideramos tendencia fuerte/normal si es estable
+//🔹 Tendencia🔹
 esTendFuerte = absMedia >= umbral_tend_fuerte and tendEstable
 esTendNormal = absMedia >= umbral_tend_normal and absMedia < umbral_tend_fuerte and tendEstable
 esTransicion = absMedia >= umbral_lateral and absMedia < umbral_tend_fuerte and not tendEstable
 esLateral    = absMedia <  umbral_lateral
 
-// Color del fondo según régimen
+//────────────────────────────────────────────
+// 📌 PLOTS
+//────────────────────────────────────────────
+
+//🔹 Distancias🔹
+plot(distNorm, title="Distancia normalizada", color=color.new(color.orange, 0), linewidth=2)
+plot(distNormMedia, title="Semáforo", color=color.new(color.teal, 0), linewidth=2)
+
+//🔹 Líneas de referencia🔹
+hline(0,  "0",  color=color.new(color.white, 70))
+hline(1,  "+1", color=color.new(color.gray, 70))
+hline(-1, "-1", color=color.new(color.gray, 70))
+
+//🔹 Color de fondo🔹
 colorFondo =
      esTendFuerte ? color.new(color.green, 85) :
      esTendNormal ? color.new(color.blue, 85) :
@@ -82,18 +96,6 @@ colorFondo =
      na
 
 bgcolor(colorFondo)
-
-//────────────────────────────────────────────
-// 📌 PLOTS
-//────────────────────────────────────────────
-
-plot(distNorm, title="Distancia normalizada", color=color.new(color.orange, 0), linewidth=2)
-plot(distNormMedia, title="Semáforo", color=color.new(color.teal, 0), linewidth=2)
-
-//------Líneas de referencia------
-hline(0,  "0",  color=color.new(color.white, 70))
-hline(1,  "+1", color=color.new(color.gray, 70))
-hline(-1, "-1", color=color.new(color.gray, 70))
 
 //────────────────────────────────────────────
 // 📌 Análisis técnico
