@@ -21,6 +21,14 @@ lenMediaDist = input.int(50, "Velas tendencia", minval=1)
 lenSignWindow  = input.int(50, "Ventana cambios de signo", minval=2)
 maxSignChanges = input.int(3,  "Máx cambios de signo permitidos", minval=0)
 
+//🔹 MACD🔹 
+fastLen = input.int(5,  "EMA MACD rápida", minval=1)
+slowLen = input.int(20, "EMA MACD lenta",  minval=1)
+
+//🔹 Impulso🔹
+exitImpThr      = input.float(0.25, "Fuerza impulso", step=0.05)
+exitConfirmBars = input.int(3, "Velas confirmación",  minval=1)
+
 //────────────────────────────────────────────
 // 📌 INDICADORES
 //────────────────────────────────────────────
@@ -58,6 +66,13 @@ signChangesLastN = math.sum(signChangeSeries, lenSignWindow)
 tendEstable = signChangesLastN <= maxSignChanges
 
 //────────────────────────────────────────────
+// 📌 MACD
+//────────────────────────────────────────────
+
+distFast = ta.ema(distNorm, fastLen)  
+distSlow = ta.ema(distNorm, slowLen)  
+
+//────────────────────────────────────────────
 // 📌 SEMÁFORO
 //────────────────────────────────────────────
 
@@ -67,20 +82,44 @@ umbral_tend_normal = 0.30
 umbral_lateral     = 0.20
 
 absMedia = math.abs(distNormMedia)
+absNorm  = math.abs(distNorm)
 
 //🔹 Tendencia🔹
-esTendFuerte = absMedia >= umbral_tend_fuerte and tendEstable
-esTendNormal = absMedia >= umbral_tend_normal and absMedia < umbral_tend_fuerte and tendEstable
-esTransicion = absMedia >= umbral_lateral and absMedia < umbral_tend_fuerte and not tendEstable
-esLateral    = absMedia <  umbral_lateral
+
+// 1. Vía clásica
+tendFuerte_clasica = absMedia >= umbral_tend_fuerte and tendEstable
+tendNormal_clasica = absMedia >= umbral_tend_normal and absMedia < umbral_tend_fuerte and tendEstable
+
+// 2. Vía rápida
+tendNormal_rapida = (distFast > distSlow) and tendEstable and absNorm >= umbral_lateral and absMedia < umbral_tend_normal
+tendFuerte_rapida = (distFast > distSlow) and tendEstable and absNorm >= 0.35 
+
+// 3. Combinamos ambas vías
+esTendFuerte_preExit = tendFuerte_clasica or tendFuerte_rapida
+esTendNormal_preExit = tendNormal_clasica or tendNormal_rapida
+
+// 4. Salida rápida de tendencia
+exitRaw = (distFast < distSlow) and (absNorm < exitImpThr)
+exitCount     = math.sum(exitRaw ? 1.0 : 0.0, exitConfirmBars)
+salidaRapida  = exitCount == exitConfirmBars
+
+//🔹 Condicionales🔹
+esTendFuerte = esTendFuerte_preExit and not salidaRapida
+esTendNormal = esTendNormal_preExit and not salidaRapida
+esLateral = absMedia < umbral_lateral
+esTransicion = not esTendFuerte and not esTendNormal and not esLateral
 
 //────────────────────────────────────────────
 // 📌 PLOTS
 //────────────────────────────────────────────
 
 //🔹 Distancias🔹
-plot(distNorm, title="Distancia normalizada", color=color.new(color.orange, 0), linewidth=2)
-plot(distNormMedia, title="Semáforo", color=color.new(color.teal, 0), linewidth=2)
+plot(distNorm, title="Distancia normalizada", color=color.new(color.yellow, 0), linewidth=2)
+plot(distNormMedia, title="Semáforo", color=color.new(color.blue, 0), linewidth=2)
+
+//🔹 MACD🔹
+plot(distFast, title="distFast (EMA rápida distNorm)", color=color.new(color.green, 0), linewidth=1)
+plot(distSlow, title="distSlow (EMA lenta distNorm)",  color=color.new(color.red,  0), linewidth=1)
 
 //🔹 Líneas de referencia🔹
 hline(0,  "0",  color=color.new(color.white, 70))
