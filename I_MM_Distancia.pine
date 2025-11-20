@@ -9,25 +9,29 @@ indicator("MM_Distancia", overlay=false)
 //────────────────────────────────────────────
 
 //🔹 MEDIAS🔹
-emaLen = input.int(50,  "Longitud EMA")
-smaLen = input.int(200, "Longitud SMA")
+emaLen = input.int(50,  "Longitud EMA", group = "🔹 MEDIAS")
+smaLen = input.int(200, "Longitud SMA", group = "🔹 MEDIAS")
 
 //🔹 UMBRALES🔹 
-lenNorm     = input.int(200, "Velas para normalizar", minval=10)
-umbralN  = input.float(0.6, "Umbral normalizado", step=0.05)
+lenNorm  = input.int(200, "Velas para normalizar", minval=10,   group = "🔹 UMBRALES")
+umbralN  = input.float(0.6, "Umbral normalizado",  step=0.05,   group = "🔹 UMBRALES")
+umbral_tend_fuerte = input.float(0.5, "Umbral Extremos",  step=0.05,   group = "🔹 UMBRALES")
+umbral_tend_normal = input.float(0.3, "Umbral tendencia",  step=0.05,   group = "🔹 UMBRALES")
+umbral_lateral = input.float(0.2, "Umbral lateral",  step=0.05,   group = "🔹 UMBRALES")
 
 //🔹 CONTADORES🔹 
-lenMediaDist = input.int(50, "Velas tendencia", minval=1)
-lenSignWindow  = input.int(50, "Ventana cambios de signo", minval=2)
-maxSignChanges = input.int(3,  "Máx cambios de signo permitidos", minval=0)
+lenMediaDist   = input.int(50, "Velas tendencia",           minval=1, group = "🔹 CONTADORES")
+lenSignWindow  = input.int(50, "Ventana cambios de signo",  minval=2, group = "🔹 CONTADORES")
+maxSignChanges = input.int(3,  "Máx cambios de signo",      minval=0, group = "🔹 CONTADORES")
 
-//🔹 MACD🔹 
-fastLen = input.int(5,  "EMA MACD rápida", minval=1)
-slowLen = input.int(20, "EMA MACD lenta",  minval=1)
+//🔹 VELOCIDAD🔹 
+fastLen           = input.int(5,  "EMA MACD rápida",  minval=1, group = "🔹 VELOCIDAD")
+slowLen           = input.int(20, "EMA MACD lenta",   minval=1, group = "🔹 VELOCIDAD")
+strongMomentumThr = input.float(0.35, "Umbral velocidad", step=0.05, group = "🔹 VELOCIDAD")
 
-//🔹 Impulso🔹
-exitImpThr      = input.float(0.25, "Fuerza impulso", step=0.05)
-exitConfirmBars = input.int(3, "Velas confirmación",  minval=1)
+//🔹 IMPULSO🔹
+exitImpThr      = input.float(0.25, "Fuerza impulso",      step=0.05, group = "🔹 IMPULSO")
+exitConfirmBars = input.int(3,      "Velas confirmación",  minval=1,  group = "🔹 IMPULSO")
 
 //────────────────────────────────────────────
 // 📌 INDICADORES
@@ -39,13 +43,9 @@ sma = ta.sma(close, smaLen)
 distPct = (ema - sma) / sma * 100
 
 //🔹 Umbral Dinámico-Normalizado🔹 
-// Max abs de la distancia en las últimas lenNorm velas
 maxAbsDist = ta.highest(math.abs(distPct), lenNorm)
-// Distancia normalizada a [-1, 1]
 distNorm = maxAbsDist != 0.0 ? distPct / maxAbsDist : 0.0
-// media de distNorm para suavizar el régimen
 distNormMedia = ta.sma(distNorm, lenMediaDist)
-// Condición de umbral (en unidades normalizadas)
 condUmbral = math.abs(distNorm) > umbralN
 
 //────────────────────────────────────────────
@@ -66,7 +66,7 @@ signChangesLastN = math.sum(signChangeSeries, lenSignWindow)
 tendEstable = signChangesLastN <= maxSignChanges
 
 //────────────────────────────────────────────
-// 📌 MACD
+// 📌 VELOCIDAD
 //────────────────────────────────────────────
 
 distFast = ta.ema(distNorm, fastLen)  
@@ -75,11 +75,6 @@ distSlow = ta.ema(distNorm, slowLen)
 //────────────────────────────────────────────
 // 📌 SEMÁFORO
 //────────────────────────────────────────────
-
-//🔹 Umbrales🔹
-umbral_tend_fuerte = 0.50
-umbral_tend_normal = 0.30
-umbral_lateral     = 0.20
 
 absMedia = math.abs(distNormMedia)
 absNorm  = math.abs(distNorm)
@@ -92,7 +87,7 @@ tendNormal_clasica = absMedia >= umbral_tend_normal and absMedia < umbral_tend_f
 
 // 2. Vía rápida
 tendNormal_rapida = (distFast > distSlow) and tendEstable and absNorm >= umbral_lateral and absMedia < umbral_tend_normal
-tendFuerte_rapida = (distFast > distSlow) and tendEstable and absNorm >= 0.35 
+tendFuerte_rapida = (distFast > distSlow) and tendEstable and absNorm >= strongMomentumThr 
 
 // 3. Combinamos ambas vías
 esTendFuerte_preExit = tendFuerte_clasica or tendFuerte_rapida
@@ -117,10 +112,6 @@ esTransicion = not esTendFuerte and not esTendNormal and not esLateral
 plot(distNorm, title="Distancia normalizada", color=color.new(color.yellow, 0), linewidth=2)
 plot(distNormMedia, title="Semáforo", color=color.new(color.blue, 0), linewidth=2)
 
-//🔹 MACD🔹
-plot(distFast, title="distFast (EMA rápida distNorm)", color=color.new(color.green, 0), linewidth=1)
-plot(distSlow, title="distSlow (EMA lenta distNorm)",  color=color.new(color.red,  0), linewidth=1)
-
 //🔹 Líneas de referencia🔹
 hline(0,  "0",  color=color.new(color.white, 70))
 hline(1,  "+1", color=color.new(color.gray, 70))
@@ -137,11 +128,47 @@ colorFondo =
 bgcolor(colorFondo)
 
 //────────────────────────────────────────────
-// 📌 Análisis técnico
+// 📌 PARAMETRIZACIÓN
 //────────────────────────────────────────────
 
-//Este indicador nos permite detectar:
-//   Tendencias fuertes
-//   Desacoples grandes entre medias
-//   Evitar señales en zonas laterales
-//   Confirmar impulsos
+//🔹 DAX🔹
+//emaLen = 50
+//smaLen = 200
+//lenNorm  = 500
+//umbralN  = 0.6
+//lenMediaDist  = 120 
+//lenSignWindow = 150
+//maxSignChanges = 6
+//fastLen = 4
+// slowLen = 18
+//strongMomentumThr = 0.4
+//exitImpThr = 0.25
+//exitConfirmBars = 4 
+
+//🔹 ORO🔹
+//emaLen = 50
+//smaLen = 200
+//lenNorm  = 700
+//umbralN  = 0.65
+//lenMediaDist   = 150 
+//lenSignWindow  = 200
+//maxSignChanges = 5
+//fastLen = 5
+// slowLen = 22
+//strongMomentumThr = 0.45
+//exitImpThr = 0.3
+//exitConfirmBars = 5 
+
+//🔹 NASDAQ🔹
+//emaLen = 50
+//smaLen = 200
+//lenNorm  = 600 
+//umbralN  = 0.7
+//lenMediaDist   = 90 
+//lenSignWindow  = 120
+//maxSignChanges = 8
+//fastLen = 3
+// slowLen = 15
+//strongMomentumThr = 0.35
+//exitImpThr = 0.22
+//exitConfirmBars = 3 

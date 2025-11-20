@@ -1,0 +1,83 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+indicator("MM_Estructura", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+
+//🔹 MEDIAS PRINCIPALES🔹
+group_main = "🔹 Medias principales"
+emaLen = input.int(50,  "Longitud EMA (rápida)", group = group_main)
+smaLen = input.int(200, "Longitud SMA (lenta)",  group = group_main)
+
+//🔹 MEDIAS DE ESTRUCTURA🔹
+group_struct = "🔹 Medias de estructura"
+showMa200 = input.bool(true,  "Mostrar MA 200", group = group_struct)
+showMa100 = input.bool(true,  "Mostrar MA 100", group = group_struct)
+showMa50  = input.bool(true,  "Mostrar MA  50", group = group_struct)
+showMa20  = input.bool(true,  "Mostrar MA  20", group = group_struct)
+useEMA    = input.bool(false, "Usar EMA en vez de SMA (estructura)", group = group_struct)
+
+//🔹 CRUCES Y PATRONES🔹
+group_signals = "🔹 Señales"
+showCrosses   = input.bool(true, "Mostrar cruces EMA-SMA", group = group_signals)
+showPullbacks = input.bool(true, "Mostrar pullbacks a MA", group = group_signals)
+pullbackLen   = input.int(1, "Tolerancia retest (n velas)", minval = 0, group = group_signals)
+
+//🔹 ALERTAS🔹
+group_alerts   = "🔹 Alertas"
+alertOnCross   = input.bool(true, "Alerta en cruces EMA-SMA", group = group_alerts)
+alertOnStack   = input.bool(false,"Alerta en stacking completo", group = group_alerts)
+
+//────────────────────────────────────────────
+// 📌 CÁLCULO DE MEDIAS
+//────────────────────────────────────────────
+
+// Medias principales (coherentes con tu indicador de distancia)
+emaMain = ta.ema(close, emaLen)
+smaMain = ta.sma(close, smaLen)
+
+// Medias de estructura
+ma200 = useEMA ? ta.ema(close, 200) : ta.sma(close, 200)
+ma100 = useEMA ? ta.ema(close, 100) : ta.sma(close, 100)
+ma50  = useEMA ? ta.ema(close,  50) : ta.sma(close,  50)
+ma20  = useEMA ? ta.ema(close,  20) : ta.sma(close,  20)
+
+//────────────────────────────────────────────
+// 📌 PLOTS DE MEDIAS
+//────────────────────────────────────────────
+
+plot(emaMain, title = "EMA rápida", color = color.new(color.yellow, 0), linewidth = 3)
+plot(smaMain, title = "SMA lenta",  color = color.new(color.blue, 0), linewidth = 3)
+
+plot(showMa200 ? ma200 : na, title = "MA 200", color = color.new(color.aqua, 0), linewidth = 1)
+plot(showMa100 ? ma100 : na, title = "MA 100", color = color.new(color.aqua,  0), linewidth = 1)
+plot(showMa50  ? ma50  : na, title = "MA  50", color = color.new(color.aqua,  0), linewidth = 1)
+plot(showMa20  ? ma20  : na, title = "MA  20", color = color.new(color.aqua,0), linewidth = 1)
+
+//────────────────────────────────────────────
+// 📌 STACKING
+//────────────────────────────────────────────
+
+// Stacking alcista / bajista de estructura
+bullStack = close > ma20 and ma20 > ma50 and ma50 > ma100
+bearStack = close < ma20 and ma20 < ma50 and ma50 < ma100
+
+// Color de fondo suave según stacking
+bgColor =
+     bullStack ? color.new(color.green, 80) :
+     bearStack ? color.new(color.red,   80) :
+     na
+
+bgcolor(bgColor)
+
+//────────────────────────────────────────────
+// 📌 CRUCES EMA-SMA
+//────────────────────────────────────────────
+
+bullCross = ta.crossover(emaMain, smaMain)
+bearCross = ta.crossunder(emaMain, smaMain)
