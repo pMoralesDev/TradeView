@@ -1,0 +1,175 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+indicator("MM_Distancia", overlay=false)
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+
+//🔹 MEDIAS🔹
+emaLen = input.int(50,  "Longitud EMA", group = "🔹 MEDIAS")
+smaLen = input.int(200, "Longitud SMA", group = "🔹 MEDIAS")
+
+//🔹 UMBRALES🔹 
+tfCalc = input.timeframe("1", "Timeframe cálculo", options = ["1", "5", "15", "30", "60", "240", "D"], group = "🔹 UMBRALES")
+lenNorm  = input.int(200, "Velas para normalizar", minval=10, step=10,   group = "🔹 UMBRALES")
+umbralN  = input.float(0.6, "Umbral normalizado",  step=0.05,   group = "🔹 UMBRALES")
+umbral_tend_fuerte = input.float(0.5, "Umbral Extremos",  step=0.05,   group = "🔹 UMBRALES")
+umbral_tend_normal = input.float(0.3, "Umbral tendencia",  step=0.05,   group = "🔹 UMBRALES")
+umbral_lateral = input.float(0.2, "Umbral lateral",  step=0.05,   group = "🔹 UMBRALES")
+
+//🔹 CONTADORES🔹 
+lenMediaDist   = input.int(50, "Velas tendencia",           minval=1, group = "🔹 CONTADORES")
+lenSignWindow  = input.int(50, "Ventana cambios de signo",  minval=2, group = "🔹 CONTADORES")
+maxSignChanges = input.int(3,  "Máx cambios de signo",      minval=0, group = "🔹 CONTADORES")
+
+//🔹 VELOCIDAD🔹 
+fastLen           = input.int(5,  "EMA MACD rápida",  minval=1, group = "🔹 VELOCIDAD")
+slowLen           = input.int(20, "EMA MACD lenta",   minval=1, group = "🔹 VELOCIDAD")
+strongMomentumThr = input.float(0.35, "Umbral velocidad", step=0.05, group = "🔹 VELOCIDAD")
+
+//🔹 IMPULSO🔹
+exitImpThr      = input.float(0.25, "Fuerza impulso",      step=0.05, group = "🔹 IMPULSO")
+exitConfirmBars = input.int(3,      "Velas confirmación",  minval=1,  group = "🔹 IMPULSO")
+
+//────────────────────────────────────────────
+// 📌 INDICADORES
+//────────────────────────────────────────────
+
+//🔹 Medias Móviles🔹 
+ema  = request.security(syminfo.tickerid, tfCalc, ta.ema(close, emaLen))
+sma  = request.security(syminfo.tickerid, tfCalc, ta.sma(close, smaLen))
+distPct = request.security(syminfo.tickerid, tfCalc, (ta.ema(close, emaLen) - ta.sma(close, smaLen)) / ta.sma(close, smaLen) * 100)
+
+//🔹 Umbral Dinámico-Normalizado🔹 
+maxAbsDist = ta.highest(math.abs(distPct), lenNorm)
+distNorm = maxAbsDist != 0.0 ? distPct / maxAbsDist : 0.0
+distNormMedia = ta.sma(distNorm, lenMediaDist)
+condUmbral = math.abs(distNorm) > umbralN
+
+//────────────────────────────────────────────
+// 📌 ESTABILIDAD DE SIGNO
+//────────────────────────────────────────────
+signNow  = distNormMedia > 0 ? 1 : distNormMedia < 0 ? -1 : 0
+signPrev = distNormMedia[1] > 0 ? 1 : distNormMedia[1] < 0 ? -1 : 0
+
+signChanged = signNow != signPrev
+
+// Contamos cambios de signo como serie float
+signChangeSeries = signChanged ? 1.0 : 0.0
+
+// nº de cambios de signo en la ventana
+signChangesLastN = math.sum(signChangeSeries, lenSignWindow)
+
+// tendencia “estable” si hay pocos cambios de signo
+tendEstable = signChangesLastN <= maxSignChanges
+
+//────────────────────────────────────────────
+// 📌 VELOCIDAD
+//────────────────────────────────────────────
+
+distFast = ta.ema(distNorm, fastLen)  
+distSlow = ta.ema(distNorm, slowLen)  
+
+//────────────────────────────────────────────
+// 📌 SEMÁFORO
+//────────────────────────────────────────────
+
+absMedia = math.abs(distNormMedia)
+absNorm  = math.abs(distNorm)
+
+//🔹 Tendencia🔹
+
+// 1. Vía clásica
+tendFuerte_clasica = absMedia >= umbral_tend_fuerte and tendEstable
+tendNormal_clasica = absMedia >= umbral_tend_normal and absMedia < umbral_tend_fuerte and tendEstable
+
+// 2. Vía rápida
+tendNormal_rapida = (distFast > distSlow) and tendEstable and absNorm >= umbral_lateral and absMedia < umbral_tend_normal
+tendFuerte_rapida = (distFast > distSlow) and tendEstable and absNorm >= strongMomentumThr 
+
+// 3. Combinamos ambas vías
+esTendFuerte_preExit = tendFuerte_clasica or tendFuerte_rapida
+esTendNormal_preExit = tendNormal_clasica or tendNormal_rapida
+
+// 4. Salida rápida de tendencia
+exitRaw = (distFast < distSlow) and (absNorm < exitImpThr)
+exitCount     = math.sum(exitRaw ? 1.0 : 0.0, exitConfirmBars)
+salidaRapida  = exitCount == exitConfirmBars
+
+//🔹 Condicionales🔹
+esTendFuerte = esTendFuerte_preExit and not salidaRapida
+esTendNormal = esTendNormal_preExit and not salidaRapida
+esLateral = absMedia < umbral_lateral
+esTransicion = not esTendFuerte and not esTendNormal and not esLateral
+
+//────────────────────────────────────────────
+// 📌 PLOTS
+//────────────────────────────────────────────
+
+//🔹 Distancias🔹
+plot(distNorm, title="Distancia normalizada", color=color.new(color.yellow, 0), linewidth=2)
+plot(distNormMedia, title="Semáforo", color=color.new(color.blue, 0), linewidth=2)
+
+//🔹 Líneas de referencia🔹
+hline(0,  "0",  color=color.new(color.white, 70))
+hline(1,  "+1", color=color.new(color.gray, 70))
+hline(-1, "-1", color=color.new(color.gray, 70))
+
+//🔹 Color de fondo🔹
+colorFondo =
+     esTendFuerte ? color.new(color.green, 85) :
+     esTendNormal ? color.new(color.blue, 85) :
+     esTransicion ? color.new(color.orange, 85) :
+     esLateral    ? color.new(color.red, 85) :
+     na
+
+bgcolor(colorFondo)
+
+//────────────────────────────────────────────
+// 📌 PARAMETRIZACIÓN
+//────────────────────────────────────────────
+
+//🔹 DAX🔹
+//emaLen = 50
+//smaLen = 200
+//lenNorm  = 500
+//umbralN  = 0.6
+//lenMediaDist  = 120 
+//lenSignWindow = 150
+//maxSignChanges = 6
+//fastLen = 4
+// slowLen = 18
+//strongMomentumThr = 0.4
+//exitImpThr = 0.25
+//exitConfirmBars = 4 
+
+//🔹 ORO🔹
+//emaLen = 50
+//smaLen = 200
+//lenNorm  = 700
+//umbralN  = 0.65
+//lenMediaDist   = 150 
+//lenSignWindow  = 200
+//maxSignChanges = 5
+//fastLen = 5
+// slowLen = 22
+//strongMomentumThr = 0.45
+//exitImpThr = 0.3
+//exitConfirmBars = 5 
+
+//🔹 NASDAQ🔹
+//emaLen = 50
+//smaLen = 200
+//lenNorm  = 600 
+//umbralN  = 0.7
+//lenMediaDist   = 90 
+//lenSignWindow  = 120
+//maxSignChanges = 8
+//fastLen = 3
+// slowLen = 15
+//strongMomentumThr = 0.35
+//exitImpThr = 0.22
+//exitConfirmBars = 3 

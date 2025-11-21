@@ -1,0 +1,155 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+strategy("ST_MM_Trade",
+     overlay            = true,
+     initial_capital    = 100000,
+     default_qty_type   = strategy.percent_of_equity,
+     default_qty_value  = 50,
+     pyramiding         = 1,
+     commission_type    = strategy.commission.percent,
+     commission_value   = 0.0)
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+
+//🔹 MEDIAS🔹
+group_medias = "📌 MEDIAS"
+show_sma25   = input.bool(true,  "Mostrar SMA25",  group = group_medias)
+show_sma50   = input.bool(true,  "Mostrar SMA50",  group = group_medias)
+show_sma100  = input.bool(true,  "Mostrar SMA100", group = group_medias)
+show_sma200  = input.bool(true,  "Mostrar SMA200", group = group_medias)
+
+//🔹 DISTANCIA🔹
+group_dist       = "📌 DISTANCIA"
+percentDistSma   = input.float(0.5, "Umbral distancia SMA25–SMA200 (%)", step = 0.1, group = group_dist)
+
+// 🔹 Riesgo (elige solo uno)🔹
+group_risk  = "📌 RIESGO"
+riskProfile = input.string("Bajo", "Perfil de riesgo",
+                 options = ["Alto", "Moderado", "Bajo"], group = group_risk)
+
+//────────────────────────────────────────────
+// 📌 INDICADORES
+//────────────────────────────────────────────
+
+sma25  = ta.ema(close, 25)
+sma50  = ta.sma(close, 50)
+sma100 = ta.sma(close, 100)
+sma200 = ta.sma(close, 200)
+
+// Distancia entre SMA25 y SMA200 en %
+distMedias         = math.abs(sma25 - sma200)
+distPct            = distMedias / close * 100
+condicionDistancia = distPct > percentDistSma   // Fondo verde cuando hay “apertura” suficiente
+
+// Según el perfil de riesgo, definimos SMA de entrada y SMA de TP (“superior”)
+entrySMA = riskProfile == "Alto"     ? sma25  :
+           riskProfile == "Moderado" ? sma50  :
+                                      sma100
+
+tpSMA    = riskProfile == "Alto"     ? sma50  :
+           riskProfile == "Moderado" ? sma100 :
+                                      sma200
+
+//────────────────────────────────────────────
+// 📌 GESTIÓN DEL RIESGO Y ESTADO
+//────────────────────────────────────────────
+
+// Stops dinámicos
+var float longStop  = na
+var float shortStop = na
+
+// Cooldown tras trade perdedor (en ms)
+var int  lastLossCloseTime = na
+cooldownActive = not na(lastLossCloseTime) and (time - lastLossCloseTime) < 15 * 60 * 1000  // 15 minutos
+
+// Detectar cierre de posición y comprobar si fue con pérdida
+float lastProfit = na
+if strategy.position_size[1] != 0 and strategy.position_size == 0 and strategy.closedtrades > 0
+    lastProfit := strategy.closedtrades.profit(strategy.closedtrades - 1)
+    if lastProfit < 0
+        lastLossCloseTime := time
+
+inLong  = strategy.position_size > 0
+inShort = strategy.position_size < 0
+flat    = strategy.position_size == 0
+
+//────────────────────────────────────────────
+// 📌 CONDICIONES DE ENTRADA
+//────────────────────────────────────────────
+
+// Solo buscamos señal si hay distancia (fondo verde), no hay posición y no hay cooldown
+baseEntryFilter = condicionDistancia and flat and not cooldownActive
+
+// Cruces de precio con la SMA de entrada
+crossEntryUp   = ta.crossover(close, entrySMA)   // entrada LARGA
+crossEntryDown = ta.crossunder(close, entrySMA)  // entrada CORTA
+
+// Entradas
+if baseEntryFilter and crossEntryUp
+    longStop  := ta.lowest(low, 10)   // SL en mínimo de las últimas 10 velas
+    shortStop := na
+    strategy.entry("Long", strategy.long)
+
+if baseEntryFilter and crossEntryDown
+    shortStop := ta.highest(high, 10) // SL en máximo de las últimas 10 velas
+    longStop  := na
+    strategy.entry("Short", strategy.short)
+
+//────────────────────────────────────────────
+// 📌 TAKE PROFIT
+//────────────────────────────────────────────
+
+tpLongHit  = inLong  and ta.crossunder(close, tpSMA)
+tpShortHit = inShort and ta.crossover(close, tpSMA)
+
+if tpLongHit
+    longStop := na
+    strategy.close("Long")
+
+if tpShortHit
+    shortStop := na
+    strategy.close("Short")
+
+//────────────────────────────────────────────
+// 📌 STOP LOSS
+//────────────────────────────────────────────
+
+crossAnySMA =
+      ta.crossover(close, sma25)  or ta.crossunder(close, sma25)  or
+      ta.crossover(close, sma50)  or ta.crossunder(close, sma50)  or
+      ta.crossover(close, sma100) or ta.crossunder(close, sma100) or
+      ta.crossover(close, sma200) or ta.crossunder(close, sma200)
+
+// Largos
+if inLong and not tpLongHit
+    if crossAnySMA
+        newStop = ta.lowest(low, 10)
+        if na(longStop) or newStop > longStop    // solo subimos el stop, nunca lo alejamos
+            longStop := newStop
+    if not na(longStop)
+        strategy.exit("Long SL", "Long", stop = longStop)
+
+// Cortos
+if inShort and not tpShortHit
+    if crossAnySMA
+        newStop = ta.highest(high, 10)
+        if na(shortStop) or newStop < shortStop  // solo bajamos el stop, nunca lo alejamos
+            shortStop := newStop
+    if not na(shortStop)
+        strategy.exit("Short SL", "Short", stop = shortStop)
+
+//────────────────────────────────────────────
+// 📌 PLOTS / VISUAL
+//────────────────────────────────────────────
+
+// Fondo verde cuando hay distancia suficiente entre SMA25 y SMA200
+bgcolor(condicionDistancia ? color.new(color.green, 90) : na)
+
+plot(show_sma25  ? sma25  : na, title = "SMA_25 (EMA)",  color = color.new(color.white, 0),   linewidth = 1)
+plot(show_sma50  ? sma50  : na, title = "SMA_50",        color = color.new(color.fuchsia, 0), linewidth = 2)
+plot(show_sma100 ? sma100 : na, title = "SMA_100",       color = color.new(color.yellow, 0),  linewidth = 3)
+plot(show_sma200 ? sma200 : na, title = "SMA_200",       color = color.new(color.blue, 0),    linewidth = 4)

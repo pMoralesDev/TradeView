@@ -1,0 +1,210 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+strategy("MM_Distancia_000",
+     overlay = true,
+     initial_capital = 100000,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 1,
+     process_orders_on_close = true)
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+
+//🔹 MEDIAS🔹
+group_medias = "🔹 MEDIAS"
+emaLen = input.int(50,  "Longitud EMA", group = group_medias)
+smaLen = input.int(200, "Longitud SMA", group = group_medias)
+
+//🔹 UMBRALES DISTANCIA🔹 
+group_umbrales = "🔹 UMBRALES"
+lenNorm  = input.int(200, "Velas para normalizar", minval=10,   group = group_umbrales)
+umbralN  = input.float(0.6, "Umbral normalizado base",  step=0.05,   group = group_umbrales)
+umbral_tend_fuerte = input.float(0.5, "Umbral tendencia fuerte (verde)",  step=0.05,   group = group_umbrales)
+umbral_tend_normal = input.float(0.3, "Umbral tendencia normal (azul)",  step=0.05,   group = group_umbrales)
+umbral_lateral     = input.float(0.2, "Umbral lateral (rojo)",  step=0.05,   group = group_umbrales)
+
+//🔹 CONTADORES🔹 
+group_cont = "🔹 CONTADORES"
+lenMediaDist   = input.int(50, "Velas tendencia (media distNorm)",           minval=1, group = group_cont)
+lenSignWindow  = input.int(50, "Ventana cambios de signo",  minval=2, group = group_cont)
+maxSignChanges = input.int(3,  "Máx cambios de signo",      minval=0, group = group_cont)
+
+//🔹 VELOCIDAD🔹 
+group_vel = "🔹 VELOCIDAD"
+fastLen           = input.int(5,  "EMA rápida distNorm",  minval=1, group = group_vel)
+slowLen           = input.int(20, "EMA lenta distNorm",   minval=1, group = group_vel)
+strongMomentumThr = input.float(0.35, "Umbral velocidad fuerte", step=0.05, group = group_vel)
+
+//🔹 IMPULSO / SALIDA RÁPIDA🔹
+group_imp = "🔹 IMPULSO"
+exitImpThr      = input.float(0.25, "Umbral impulso para salida rápida",      step=0.05, group = group_imp)
+exitConfirmBars = input.int(3,      "Velas confirmación salida rápida",  minval=1,  group = group_imp)
+
+//🔹 ESTRATEGIA (entradas / salidas)🔹
+group_strat = "🔹 ESTRATEGIA"
+enterExtreme      = input.float(0.8, "Umbral entrada (|distNorm| ≥)", step=0.05, group = group_strat)
+extremeTouch      = input.float(0.9, "Toque extremo (|distNorm| ≥)",  step=0.05, group = group_strat)
+exitFromExtreme   = input.float(0.5, "Salida desde extremo (|distNorm| ≤)", step=0.05, group = group_strat)
+exitCrossLevel    = input.float(0.4, "Salida por cruce (|distNorm| ≤)", step=0.05, group = group_strat)
+slPct             = input.float(0.01, "Stop Loss % desde entrada", step=0.001, minval=0.001, group = group_strat)
+
+//────────────────────────────────────────────
+// 📌 INDICADORES BASE (misma lógica que el indicador)
+//────────────────────────────────────────────
+
+// Medias
+ema = ta.ema(close, emaLen)
+sma = ta.sma(close, smaLen)
+
+// Distancia porcentual EMA-SMA
+distPct = (ema - sma) / sma * 100
+
+// Normalización
+maxAbsDist = ta.highest(math.abs(distPct), lenNorm)
+distNorm   = maxAbsDist != 0.0 ? distPct / maxAbsDist : 0.0
+distNormMedia = ta.sma(distNorm, lenMediaDist)
+
+//────────────────────────────────────────────
+// 📌 ESTABILIDAD DE SIGNO (tendEstable)
+//────────────────────────────────────────────
+
+signNow  = distNormMedia > 0 ? 1 : distNormMedia < 0 ? -1 : 0
+signPrev = distNormMedia[1] > 0 ? 1 : distNormMedia[1] < 0 ? -1 : 0
+
+signChanged = signNow != signPrev
+signChangeSeries = signChanged ? 1.0 : 0.0
+
+signChangesLastN = math.sum(signChangeSeries, lenSignWindow)
+tendEstable = signChangesLastN <= maxSignChanges
+
+//────────────────────────────────────────────
+// 📌 VELOCIDAD DISTANCIA
+//────────────────────────────────────────────
+
+distFast = ta.ema(distNorm, fastLen)
+distSlow = ta.ema(distNorm, slowLen)
+
+//────────────────────────────────────────────
+// 📌 SEMÁFORO (tendencias y estados)
+//────────────────────────────────────────────
+
+absMedia = math.abs(distNormMedia)
+absNorm  = math.abs(distNorm)
+
+// 1. Vía clásica
+tendFuerte_clasica = absMedia >= umbral_tend_fuerte and tendEstable
+tendNormal_clasica = absMedia >= umbral_tend_normal and absMedia < umbral_tend_fuerte and tendEstable
+
+// 2. Vía rápida (momentum)
+tendNormal_rapida = (distFast > distSlow) and tendEstable and absNorm >= umbral_lateral and absMedia < umbral_tend_normal
+tendFuerte_rapida = (distFast > distSlow) and tendEstable and absNorm >= strongMomentumThr 
+
+// Combinadas
+esTendFuerte_preExit = tendFuerte_clasica or tendFuerte_rapida
+esTendNormal_preExit = tendNormal_clasica or tendNormal_rapida
+
+// 4. Salida rápida de tendencia (para el semáforo)
+exitRaw        = (distFast < distSlow) and (absNorm < exitImpThr)
+exitCount      = math.sum(exitRaw ? 1.0 : 0.0, exitConfirmBars)
+salidaRapida   = exitCount == exitConfirmBars
+
+// Estados finales
+esTendFuerte = esTendFuerte_preExit and not salidaRapida
+esTendNormal = esTendNormal_preExit and not salidaRapida
+esLateral    = absMedia < umbral_lateral
+esTransicion = not esTendFuerte and not esTendNormal and not esLateral
+
+//────────────────────────────────────────────
+// 📌 AYUDAS VISUALES (opcional)
+//────────────────────────────────────────────
+
+plot(distNorm,      title="Distancia normalizada", color=color.new(color.yellow, 0), linewidth=2)
+plot(distNormMedia, title="Semáforo",              color=color.new(color.blue,   0), linewidth=2)
+
+hline(0,  "0",  color=color.new(color.white, 70))
+hline(1,  "+1", color=color.new(color.gray,  80))
+hline(-1, "-1", color=color.new(color.gray,  80))
+
+// Fondo como en el indicador (opcional)
+colorFondo =
+     esTendFuerte ? color.new(color.green, 85) :
+     esTendNormal ? color.new(color.blue,  85) :
+     esTransicion ? color.new(color.orange,85) :
+     esLateral    ? color.new(color.red,   85) :
+     na
+
+bgcolor(colorFondo)
+
+//────────────────────────────────────────────
+// 📌 LÓGICA ESTRATEGIA
+//────────────────────────────────────────────
+
+// Tendencia verde alcista / bajista
+bullTrend = esTendFuerte and distNormMedia > 0
+bearTrend = esTendFuerte and distNormMedia < 0
+
+// Cruces EMA-SMA
+longCross  = ta.crossover(ema, sma)   // EMA cruza por encima de SMA
+shortCross = ta.crossunder(ema, sma)  // EMA cruza por debajo de SMA
+
+// Entradas según tu idea
+longEntry  = bullTrend and longCross  and distNorm >=  enterExtreme
+shortEntry = bearTrend and shortCross and distNorm <= -enterExtreme
+
+// Flags para saber si se ha tocado un extremo estando en posición
+var bool longTouchedExtreme  = false
+var bool shortTouchedExtreme = false
+
+if strategy.position_size > 0
+    longTouchedExtreme  := longTouchedExtreme or (distNorm >=  extremeTouch)
+else
+    longTouchedExtreme := false
+
+if strategy.position_size < 0
+    shortTouchedExtreme := shortTouchedExtreme or (distNorm <= -extremeTouch)
+else
+    shortTouchedExtreme := false
+
+// Salidas por cruce “débil”
+longExitByCross  = strategy.position_size > 0 and shortCross and distNorm <=  exitCrossLevel
+shortExitByCross = strategy.position_size < 0 and longCross  and distNorm >= -exitCrossLevel
+
+// Salidas por pérdida de fuerza desde extremo
+longExitByExtreme  = strategy.position_size > 0 and longTouchedExtreme  and distNorm <=  exitFromExtreme
+shortExitByExtreme = strategy.position_size < 0 and shortTouchedExtreme and distNorm >= -exitFromExtreme
+
+//────────────────────────────────────────────
+// 📌 ÓRDENES DE ENTRADA
+//────────────────────────────────────────────
+
+// Entradas (una por sentido)
+if (longEntry)
+    strategy.entry("Long", strategy.long)
+
+if (shortEntry)
+    strategy.entry("Short", strategy.short)
+
+//────────────────────────────────────────────
+// 📌 STOP LOSS %
+//────────────────────────────────────────────
+
+if strategy.position_size > 0
+    longStop = strategy.position_avg_price * (1 - slPct)
+    strategy.exit("Long SL", from_entry = "Long", stop = longStop)
+
+if strategy.position_size < 0
+    shortStop = strategy.position_avg_price * (1 + slPct)
+    strategy.exit("Short SL", from_entry = "Short", stop = shortStop)
+
+//────────────────────────────────────────────
+// 📌 CIERRES POR SEÑAL
+//────────────────────────────────────────────
+
+if longExitByCross or longExitByExtreme
+    strategy.close("Long")
+
+if shortExitByCross or shortExitByExtreme
+    strategy.close("Short")

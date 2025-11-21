@@ -1,0 +1,97 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+indicator("I_MM_ZonaVerde_Alerts", overlay = true)
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+
+group_medias = "📌 MEDIAS"
+show_sma25   = input.bool(true,  "Mostrar SMA25 (EMA25)",  group = group_medias)
+show_sma200  = input.bool(true,  "Mostrar SMA200 (SMA200)", group = group_medias)
+
+group_dist     = "📌 DISTANCIA"
+percentDistSma = input.float(0.5, "Umbral distancia SMA25–SMA200 (%)", step = 0.1, group = group_dist)
+
+//────────────────────────────────────────────
+// 📌 CÁLCULO DE MEDIAS Y ZONA VERDE
+//────────────────────────────────────────────
+
+sma25  = ta.ema(close, 25)
+sma200 = ta.sma(close, 200)
+
+// Distancia entre SMA25 y SMA200 en %
+distMedias         = math.abs(sma25 - sma200)
+distPct            = distMedias / close * 100
+condicionDistancia = distPct > percentDistSma   // Zona verde cuando hay “apertura” suficiente
+
+// Fondo verde cuando estamos en zona operable
+bgcolor(condicionDistancia ? color.new(color.green, 90) : na)
+
+//────────────────────────────────────────────
+// 📌 ALERTAS ZONA VERDE (ENTRADA / SALIDA)
+//────────────────────────────────────────────
+
+// Entra en zona verde (pasa de false → true)
+zonaVerdeOn  = condicionDistancia and not condicionDistancia[1]
+
+// Sale de zona verde (pasa de true → false)
+zonaVerdeOff = not condicionDistancia and condicionDistancia[1]
+
+// Alertas
+if zonaVerdeOn
+    sym   = syminfo.ticker
+    msg   = sym + "📈"
+    alert(msg, alert.freq_once_per_bar_close)
+
+if zonaVerdeOff
+    sym   = syminfo.ticker
+    msg   = sym + "📉"
+    alert(msg, alert.freq_once_per_bar_close)
+
+//────────────────────────────────────────────
+// 📌 ALERTA CRUCE PRECIO–SMA25 (MÁX 1 CADA 5 MIN)
+//────────────────────────────────────────────
+
+// Cruce “puro” precio–SMA25
+crossPriceSMA25 = ta.cross(close, sma25)
+
+// Throttle: máximo 1 alerta cada 5 minutos
+var int  lastCross25Time  = na
+var bool cross25Filtered  = false
+
+if crossPriceSMA25
+    bool allow = na(lastCross25Time) or (time - lastCross25Time >= 5 * 60 * 1000)
+    cross25Filtered := allow
+    if allow
+        lastCross25Time := time
+else
+    cross25Filtered := false
+
+//────────────────────────────────────────────
+// 📌 FLECHITA EN EL CRUCE SMA25 (MÁX 1 CADA 5 MIN)
+//────────────────────────────────────────────
+
+plotshape(
+     cross25Filtered,
+     title     = "Flecha cruce SMA25",
+     style     = shape.labelup,
+     color     = color.new(color.yellow, 0),
+     size      = size.tiny,
+     location  = location.belowbar,
+     text      = "25"
+)
+
+if cross25Filtered
+    sym   = syminfo.ticker
+    msg   = sym + "📌"
+    alert(msg, alert.freq_once_per_bar_close)
+
+//────────────────────────────────────────────
+// 📌 PLOTS VISUALES
+//────────────────────────────────────────────
+
+plot(show_sma25  ? sma25  : na, title = "SMA_25 (EMA)",  color = color.new(color.white, 0), linewidth = 2)
+plot(show_sma200 ? sma200 : na, title = "SMA_200",       color = color.new(color.blue, 0),  linewidth = 2)
