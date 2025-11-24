@@ -1,0 +1,143 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+indicator("I_MM_OnTrade_SMA_AlertsOnly", overlay = true, max_labels_count = 500)
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+group_medias = "📌 Medias"
+lenSmaEntry  = input.int(100, "Longitud SMA entrada",           minval = 1, group = group_medias)
+lenSmaFast   = input.int(25,  "Longitud SMA rápida (SMA25)",    minval = 1, group = group_medias)
+lenSmaSlow   = input.int(50,  "Longitud SMA lenta (SMA50)",     minval = 1, group = group_medias)
+
+group_sl = "📌 Stop Loss"
+slLookback = input.int(5, "Velas para calcular SL", minval = 1, group = group_sl)
+
+group_slope = "📌 Filtro pendiente SMA25"
+slopeLen    = input.int(20,     "Velas para calcular pendiente", minval = 1, group = group_slope)
+slopeThrPct = input.float(0.1, "Pendiente mínima (%)", step = 0.01, group = group_slope)
+
+group_sess = "📌 Horario operativa"
+tradingSession = input.session("0800-2200", "Horario (HHMM-HHMM)", group = group_sess)
+
+//────────────────────────────────────────────
+// 📌 CÁLCULO DE MEDIAS
+//────────────────────────────────────────────
+smaEntry = ta.sma(close, lenSmaEntry)   // SMA100 por defecto
+smaFast  = ta.sma(close, lenSmaFast)    // SMA25 por defecto
+smaSlow  = ta.sma(close, lenSmaSlow)    // SMA50 por defecto
+
+plot(smaEntry, "SMA entrada (100)", color = color.orange, linewidth = 2)
+plot(smaFast,  "SMA rápida (25)",   color = color.new(color.teal, 0))
+plot(smaSlow,  "SMA lenta (50)",    color = color.new(color.blue, 0))
+
+//────────────────────────────────────────────
+// 📌 HORARIO DE OPERATIVA
+//────────────────────────────────────────────
+inSession = not na(time(timeframe.period, tradingSession))
+
+// Bar de apertura de sesión: pasa de fuera a dentro
+sessionOpen = inSession and not inSession[1]
+// Bar de cierre de sesión: pasa de dentro a fuera
+sessionClose = not inSession and inSession[1]
+
+//────────────────────────────────────────────
+// 📌 CONDICIONES DE ENTRADA (precio–SMA100)
+//────────────────────────────────────────────
+priceCrossUp   = ta.crossover(close, smaEntry)   // Precio cruza al alza la SMA100
+priceCrossDown = ta.crossunder(close, smaEntry)  // Precio cruza a la baja la SMA100
+
+// Stop Loss dinámico (últimas N velas)
+slLong  = ta.lowest(low,  slLookback)   // SL para BUY → mínimo últimas N velas
+slShort = ta.highest(high, slLookback)  // SL para SELL → máximo últimas N velas
+
+// Pendiente SMA25 en %
+float slopeFast = 0.0
+if slopeLen > 0 and not na(smaFast[slopeLen])
+    slopeFast := (smaFast - smaFast[slopeLen]) / smaFast[slopeLen] * 100.0
+else
+    slopeFast := 0.0
+
+slopeOkLong  = slopeFast >  slopeThrPct    // Solo BUY si pendiente positiva suficiente
+slopeOkShort = slopeFast < -slopeThrPct    // Solo SELL si pendiente negativa suficiente
+
+//TODO: Añadir filtro de volumen, velocidad, distancia... slopeFast pendiente
+enterLong  = priceCrossUp   and inSession
+enterShort = priceCrossDown and inSession
+
+//────────────────────────────────────────────
+// 📌 CRUCES SMA25–SMA50 (ALERTAS DE TP / CIERRE)
+//────────────────────────────────────────────
+smaCrossUp   = ta.crossover(smaFast, smaSlow)   // SMA25 cruza al alza SMA50
+smaCrossDown = ta.crossunder(smaFast, smaSlow)  // SMA25 cruza a la baja SMA50
+
+closeSignal = (smaCrossUp or smaCrossDown) and inSession
+
+// Precio TP sugerido = close en el cruce SMA25–SMA50
+tpPrice = close
+
+//────────────────────────────────────────────
+// 📌 LÍNEA DE SL GRÁFICA (última entrada)
+//────────────────────────────────────────────
+var float slLine = na
+
+if enterLong
+    slLine := slLong
+else if enterShort
+    slLine := slShort
+else if closeSignal
+    slLine := na
+
+//────────────────────────────────────────────
+// 📌 ALERTAS
+//────────────────────────────────────────────
+activo = syminfo.ticker
+
+// Mensajes entrada
+longMsg  = "📈"  + activo + "\nST:" + str.tostring(slLong,  format.mintick)
+shortMsg = "📉" + activo + "\nST:" + str.tostring(slShort, format.mintick)
+
+// Mensaje cruce SMA25–SMA50 (posible TP/cierre)
+closeMsg = "🎯" + activo + "\nTP:" + str.tostring(tpPrice, format.mintick)
+
+// Mensaje de apertura de sesión: alcista / bajista según SMA100
+string openMsg = ""
+if close > smaEntry
+    openMsg := "📈 " + activo + ": tendencia alcista"
+else
+    openMsg := "📉 " + activo + ": tendencia bajista"
+
+// Mensaje de cierre de sesión (buenas noches)
+string closeDayMsg = "Cierre de sesión " + activo + ": buenas noches"
+
+// Envío de alertas
+if enterLong
+    alert(longMsg,  alert.freq_once_per_bar_close)
+
+if enterShort
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+if closeSignal
+    alert(closeMsg, alert.freq_once_per_bar_close)
+
+if sessionOpen
+    alert(openMsg, alert.freq_once_per_bar_close)
+
+if sessionClose
+    alert(closeDayMsg, alert.freq_once_per_bar_close)
+
+//────────────────────────────────────────────
+// 📌 SEÑALES VISUALES EN EL GRÁFICO
+//────────────────────────────────────────────
+
+// Flechitas en entradas
+plotshape(enterLong, title="Entrada BUY", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.small, text="BUY")
+plotshape(enterShort, title="Entrada SELL", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL")
+
+// Línea horizontal del Stop Loss de la última señal
+//plot(slLine, title="Stop Loss activo", color=color.red, linewidth=1, style=plot.style_linebr)
+
+// Punto/cross en cada cruce SMA25–SMA50 (TP)
+plot(closeSignal ? tpPrice : na, title="Cruce SMA25-50 (TP)", style=plot.style_cross, linewidth=5, color=color.yellow)
