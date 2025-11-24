@@ -1,0 +1,100 @@
+//@version=6
+indicator("I_MM_Prueba", overlay = true)
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+lenSma20   = input.int(20, "Longitud SMA 20")
+lenEma50   = input.int(50, "Longitud EMA 50")
+lenSma200  = input.int(200, "Longitud SMA 200")
+
+windowLen        = input.int(40, "Velas para mínimo/máximo", minval = 1)
+touchCooldownMin = input.int(5,  "Minutos entre alertas toque SMA20", minval = 1)
+reactivationBars = input.int(15, "Velas para reactivar trade", minval = 1)
+
+//────────────────────────────────────────────
+// 📌 MEDIAS
+//────────────────────────────────────────────
+sma20  = ta.sma(close, lenSma20)
+ema50  = ta.ema(close, lenEma50)
+sma200 = ta.sma(close, lenSma200)
+
+plot(sma20,  color = color.orange, title = "SMA 20")
+plot(ema50,  color = color.teal,   title = "EMA 50")
+plot(sma200, color = color.blue,   title = "SMA 200")
+
+// Extremos últimas N velas
+hh40 = ta.highest(high, windowLen)
+ll40 = ta.lowest(low,  windowLen)
+
+// Nombre del activo
+ticker = syminfo.ticker
+
+//────────────────────────────────────────────
+// 📌 ESTADO PERSISTENTE
+//────────────────────────────────────────────
+var bool trade              = false
+var int  lastTradeOffBar    = na
+var int  lastTouchAlertTime = na
+
+touchCooldownMs = touchCooldownMin * 60 * 1000
+
+plotchar(trade, title="Trade ON", char="T", location=location.top, color=color.new(color.green, 0))
+
+//────────────────────────────────────────────
+// 📌 CRUCE SMA20 - EMA50
+//────────────────────────────────────────────
+bullCross20_50 = ta.crossover(sma20, ema50)
+bearCross20_50 = ta.crossunder(sma20, ema50)
+cross20_50     = bullCross20_50 or bearCross20_50
+
+if cross20_50 and barstate.isconfirmed
+    if trade
+        trade           := false
+        lastTradeOffBar := bar_index
+    else
+        canActivate = na(lastTradeOffBar) or (bar_index - lastTradeOffBar >= reactivationBars)
+        if canActivate
+            trade := true
+
+    isBull   = bullCross20_50
+    extremo  = isBull ? ll40 : hh40
+    dirText  = isBull ? "BUY" : "SELL"
+
+    msg = "📌" + dirText + ticker + "-SMA20"  +
+          "\nST" + str.tostring(windowLen) + "\n velas: " +
+          str.tostring(extremo, format.mintick) +
+          " | trade=" + (trade ? "TRUE" : "FALSE")
+
+    alert(msg, alert.freq_once_per_bar_close)
+
+//────────────────────────────────────────────
+// 📌 ALERTA TOQUE PRECIO SMA20
+//────────────────────────────────────────────
+priceTouchesSma20 = low <= sma20 and high >= sma20
+
+if trade and priceTouchesSma20 and barstate.isconfirmed
+    canSendTouch = na(lastTouchAlertTime) or (time - lastTouchAlertTime >= touchCooldownMs)
+    if canSendTouch
+        lastTouchAlertTime := time
+        msgTouch = "[" + ticker + "] TOQUE SMA20\n" +
+                   str.tostring(close, format.mintick)
+        alert(msgTouch, alert.freq_once_per_bar_close)
+
+//────────────────────────────────────────────
+// 📌 CRUCE EMA50 - SMA200
+//────────────────────────────────────────────
+bullCross50_200 = ta.crossover(ema50, sma200)
+bearCross50_200 = ta.crossunder(ema50, sma200)
+cross50_200     = bullCross50_200 or bearCross50_200
+
+if cross50_200 and barstate.isconfirmed
+    isBull2  = bullCross50_200
+    extremo2 = isBull2 ? ll40 : hh40
+    dirText2 = isBull2 ? "alcista" : "bajista"
+
+    msg50_200 = "📌" + dirText2 + ticker + "-SMA200-" +
+                "\nST:" + str.tostring(windowLen) + "\nvelas: " +
+                str.tostring(extremo2, format.mintick)
+
+    alert(msg50_200, alert.freq_once_per_bar_close)
