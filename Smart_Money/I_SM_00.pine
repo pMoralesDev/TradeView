@@ -1,0 +1,173 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+indicator("I_SM_00", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=50)
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+group_main = "📌 Parámetros"
+len        = input.int(24, "N velas (lookback)", minval=2, group=group_main)
+
+group_zone = "📦 Zona (grosor)"
+zoneType   = input.string("ATR", "Tipo de grosor", options=["ATR", "%"], group=group_zone)
+zoneValue  = input.float(0.5, "Grosor (ATR o %)", step=0.1, group=group_zone)
+atrLen     = input.int(14, "ATR length (si usas ATR)", minval=1, group=group_zone)
+
+group_vis  = "🎨 Visual"
+showZones  = input.bool(true, "Mostrar zonas", group=group_vis)
+showEQ     = input.bool(true, "Mostrar EQ", group=group_vis)
+showEqLbl  = input.bool(true, "Etiqueta EQ", group=group_vis)
+
+group_alert = "🔔 Alertas"
+alertOnNew  = input.bool(true,  "Alertar cuando se crea un nuevo nivel (nuevo HH/LL)", group=group_alert)
+alertOnHit  = input.bool(false, "Alertar cuando el precio toca el nivel", group=group_alert)
+touchTolPc  = input.float(0.02, "Tolerancia toque (%)", step=0.01, group=group_alert)
+
+//────────────────────────────────────────────
+// 📌 CÁLCULOS
+//────────────────────────────────────────────
+hh = ta.highest(high, len)
+ll = ta.lowest(low, len)
+eq = (hh + ll) / 2.0
+
+atr   = ta.atr(atrLen)
+zoneH = zoneType == "ATR" ? (atr * zoneValue) : (close * (zoneValue / 100.0))
+
+// Ventana EXACTA de N velas (sin extender)
+leftX  = bar_index - (len - 1)
+rightX = bar_index
+ext    = extend.none
+
+//────────────────────────────────────────────
+// 📌 DIBUJO: ZONAS (cajas)
+//────────────────────────────────────────────
+var box topBox = na
+var box botBox = na
+
+if showZones
+    // Superior (roja): HH → HH - zoneH
+    if na(topBox)
+        topBox := box.new(leftX, hh, rightX, hh - zoneH,
+            bgcolor=color.new(color.red, 80),
+            border_color=color.new(color.red, 0),
+            extend=ext)
+    else
+        box.set_left(topBox, leftX)
+        box.set_right(topBox, rightX)
+        box.set_top(topBox, hh)
+        box.set_bottom(topBox, hh - zoneH)
+        box.set_extend(topBox, ext)
+
+    // Inferior (verde): LL + zoneH → LL
+    if na(botBox)
+        botBox := box.new(leftX, ll + zoneH, rightX, ll,
+            bgcolor=color.new(color.lime, 80),
+            border_color=color.new(color.lime, 0),
+            extend=ext)
+    else
+        box.set_left(botBox, leftX)
+        box.set_right(botBox, rightX)
+        box.set_top(botBox, ll + zoneH)
+        box.set_bottom(botBox, ll)
+        box.set_extend(botBox, ext)
+else
+    if not na(topBox)
+        box.delete(topBox), topBox := na
+    if not na(botBox)
+        box.delete(botBox), botBox := na
+
+//────────────────────────────────────────────
+// 📌 EQUILIBRIUM (EQ)
+//────────────────────────────────────────────
+var line eqLine = na
+var label eqLab = na
+
+if showEQ
+    if na(eqLine)
+        eqLine := line.new(leftX, eq, rightX, eq, extend=ext, style=line.style_dashed)
+    else
+        line.set_xy1(eqLine, leftX, eq)
+        line.set_xy2(eqLine, rightX, eq)
+        line.set_extend(eqLine, ext)
+
+    if showEqLbl and barstate.islast
+        if not na(eqLab)
+            label.delete(eqLab)
+        eqLab := label.new(rightX, eq, "EQ",
+            style=label.style_label_left,
+            textcolor=color.white,
+            color=color.new(color.gray, 60))
+else
+    if not na(eqLine)
+        line.delete(eqLine), eqLine := na
+    if not na(eqLab)
+        label.delete(eqLab), eqLab := na
+
+//────────────────────────────────────────────
+// 📌 NIVELES CONFIRMADOS + EVENTOS (SMC)
+//────────────────────────────────────────────
+
+// Nivel "confirmado" = el calculado en la barra anterior
+hh_prev = hh[1]
+ll_prev = ll[1]
+
+// Detectar si la ventana (N velas) hizo un nuevo extremo (al cierre de la barra)
+newHH = not na(hh_prev) and hh > hh_prev
+newLL = not na(ll_prev) and ll < ll_prev
+
+// Guardar el último nivel confirmado para medir toques/sweeps sin repaint
+var float lastHH = na
+var float lastLL = na
+
+if barstate.isconfirmed
+    if newHH
+        lastHH := hh
+    if newLL
+        lastLL := ll
+
+// Tolerancia de toque (% del nivel) - usa tu input touchTolPc
+tolHH = na(lastHH) ? na : (lastHH * (touchTolPc / 100.0))
+tolLL = na(lastLL) ? na : (lastLL * (touchTolPc / 100.0))
+
+// "Toque" (simple): el precio llega al nivel (con tolerancia)
+hitHH = not na(lastHH) and high >= (lastHH - tolHH)
+hitLL = not na(lastLL) and low  <= (lastLL + tolLL)
+
+// Sweep / Barrido de liquidez (SMC):
+//  - Barrido arriba: mecha rompe HH y cierra por debajo (rechazo)
+//  - Barrido abajo: mecha rompe LL y cierra por encima (rechazo)
+sweepHH = not na(lastHH) and high > lastHH and close < lastHH
+sweepLL = not na(lastLL) and low  < lastLL and close > lastLL
+
+//────────────────────────────────────────────
+// 🔔 ALERTAS
+//────────────────────────────────────────────
+alertcondition(alertOnNew and newHH, title="Nuevo HH (ventana N)", message="🟥 Nuevo HH creado en la ventana de N velas")
+alertcondition(alertOnNew and newLL, title="Nuevo LL (ventana N)", message="🟩 Nuevo LL creado en la ventana de N velas")
+
+alertcondition(alertOnHit and hitHH, title="Toque HH (último HH confirmado)", message="📍 Precio tocó el último HH confirmado")
+alertcondition(alertOnHit and hitLL, title="Toque LL (último LL confirmado)", message="📍 Precio tocó el último LL confirmado")
+
+alertcondition(sweepHH, title="Sweep HH (barrido liquidez arriba)", message="🧲 Sweep arriba: mecha rompe HH y cierre vuelve debajo (posible trampa)")
+alertcondition(sweepLL, title="Sweep LL (barrido liquidez abajo)", message="🧲 Sweep abajo: mecha rompe LL y cierre vuelve encima (posible trampa)")
+
+//────────────────────────────────────────────
+// 🔔 ALERTA GLOBAL CON MENSAJE DINÁMICO + SÍMBOLO
+//────────────────────────────────────────────
+
+sendAll = newHH or newLL or hitHH or hitLL or sweepHH or sweepLL
+
+eventMsg =
+     newHH   ? "🟥 Nuevo HH"
+  :  newLL   ? "🟩 Nuevo LL"
+  :  sweepHH ? "🧲 Sweep HH (barrido arriba)"
+  :  sweepLL ? "🧲 Sweep LL (barrido abajo)"
+  :  hitHH   ? "📍 Toque HH"
+  :  hitLL   ? "📍 Toque LL"
+  :  "Evento SMC"
+
+
+if sendAll and barstate.isconfirmed
+    alert("🔔 " + syminfo.ticker + " | " + eventMsg, alert.freq_once_per_bar_close)
