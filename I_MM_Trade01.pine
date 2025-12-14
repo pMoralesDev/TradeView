@@ -1,0 +1,105 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+indicator("I_MM_01", overlay = true, max_labels_count = 500)
+
+//────────────────────────────────────────────//
+// 📌 INPUTS                                  //
+//────────────────────────────────────────────//
+
+//🔹 DIRECCIÓN🔹
+group_dir = "📌 DIRECCIÓN"
+tecnicalTrend = input.int(1, "Tendencia técnica", options = [1, 0, -1], title = "1 = Alcista, 0 = Lateral, -1 = Bajista", group = group_dir)
+
+//🔹 HORARIO🔹
+group_sess = "📌 Horario operativa"
+tradingSession = input.session("0800-2200", "Horario (HHMM-HHMM)", group = group_sess)
+
+//────────────────────────────────────────────//
+// 📌 MEDIAS                                  //
+//────────────────────────────────────────────//
+
+sma200 = ta.sma(close, 200)
+ema50  = ta.ema(close, 50)
+
+plot(sma200, "SMA 200", color = color.blue,   linewidth = 2)
+plot(ema50,  "EMA 50",  color = color.yellow, linewidth = 2)
+
+//────────────────────────────────────────────//
+// 📌 HORARIOS                                //
+//────────────────────────────────────────────//
+
+inSession    = not na(time(timeframe.period, tradingSession))
+sessionOpen  = inSession and not inSession[1]
+sessionClose = not inSession and inSession[1]
+
+//────────────────────────────────────────────//
+// 📌 UTILIDADES                              //
+//────────────────────────────────────────────//
+
+// Nombre del activo
+var string activo = syminfo.ticker
+
+// Texto de tendencia según input manual
+trendText = tecnicalTrend == 1 ? "Alcista" : tecnicalTrend == -1 ? "Bajista" : "Lateral"
+
+//────────────────────────────────────────────//
+// 📌 CRUCES PRECIO–EMA50                     //
+//────────────────────────────────────────────//
+
+// Cruces básicos
+priceCrossUp   = ta.crossover(close, ema50)
+priceCrossDown = ta.crossunder(close, ema50)
+
+// Señales según tendencia manual:
+//  - Tendencia Alcista (1): solo largos (cruce al alza).
+//  - Tendencia Bajista (-1): solo cortos (cruce a la baja).
+//  - Lateral (0): permite ambas direcciones.
+longSignal  = inSession and priceCrossUp   and tecnicalTrend != -1
+shortSignal = inSession and priceCrossDown and tecnicalTrend != 1
+
+// Marcadores en el gráfico
+plotshape(longSignal,  title = "Long EMA50",  style = shape.triangleup,location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "L50")
+
+plotshape(shortSignal, title = "Short EMA50", style = shape.triangledown,location = location.abovebar, color = color.new(color.red, 0),size = size.small, text = "S50")
+
+// Alertas de cruce precio–EMA50
+if longSignal
+    msgLong = "📈 " + activo + " | Cruce EMA50 (" + trendText + ")" + " | Precio: " + str.tostring(close, format.mintick)
+    alert(msgLong, alert.freq_once_per_bar_close)
+
+if shortSignal
+    msgShort = "📉 " + activo + " | Cruce EMA50 (" + trendText + ")" + " | Precio: " + str.tostring(close, format.mintick)
+    alert(msgShort, alert.freq_once_per_bar_close)
+
+//────────────────────────────────────────────//
+// 📌 CRUCES EMA50–SMA200 (CON STOP LOSS)     //
+//────────────────────────────────────────────//
+
+// Cruce de medias
+emaAboveSma = ta.crossover(ema50, sma200)
+emaBelowSma = ta.crossunder(ema50, sma200)
+
+// Precio de cruce (tomamos ema50 en la vela del cruce)
+crossPrice = emaAboveSma or emaBelowSma ? ema50 : na
+
+// Marcadores en el gráfico para cruces de estructura
+plotshape(emaAboveSma, title = "Cruce Alcista", style = shape.circle, location = location.belowbar,color = color.new(color.green, 0), size = size.small, text = "UP")
+
+plotshape(emaBelowSma, title = "Cruce Bajista", style = shape.circle, location = location.abovebar, color = color.new(color.orange, 0), size = size.small, text = "DOWN")
+
+// Alertas de cruce EMA50–SMA200 con SL = precio de cruce
+if inSession and emaAboveSma
+    slLong = crossPrice
+    msgTrendUp = "🚀 " + activo + " | CONFIRMACIÓN ALCISTA" + " | ST sugerido: " + str.tostring(slLong, format.mintick)
+    alert(msgTrendUp, alert.freq_once_per_bar_close)
+
+if inSession and emaBelowSma
+    slShort = crossPrice
+    msgTrendDown = "⚠️ " + activo + " | CONFIRMACIÓN BAJISTA" + " | ST sugerido: " + str.tostring(slShort, format.mintick)
+    alert(msgTrendDown, alert.freq_once_per_bar_close)
+
+//────────────────────────────────────────────//
+// 📌 FIN DEL SCRIPT                          //
+//────────────────────────────────────────────//
