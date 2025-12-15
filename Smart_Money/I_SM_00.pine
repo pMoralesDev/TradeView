@@ -171,3 +171,27 @@ eventMsg =
 
 if sendAll and barstate.isconfirmed
     alert("🔔 " + syminfo.ticker + " | " + eventMsg, alert.freq_once_per_bar_close)
+
+
+//Siguentes pasos
+// 🔗 Flujo SMC correcto (muy importante)
+
+// Sweep (inducción)
+
+// Desplazamiento (impulso fuerte)
+
+// BOS / CHOCH
+
+// Mitigación
+
+// Entrada
+
+// Tu indicador ya cubre el paso 1 de forma excelente.
+
+// Si quieres, siguiente paso lógico:
+
+// Añadir BOS / CHOCH automático
+
+// Filtrar alertas para solo sweeps + contexto válido
+
+// Detectar falsos sweeps (ruido)
