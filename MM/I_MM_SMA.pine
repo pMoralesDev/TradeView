@@ -2,22 +2,13 @@
 // © pmoralesdev
 
 //@version=6
-indicator("I_MM_OnTrade_SMA_AlertsOnly", overlay = true, max_labels_count = 500)
+indicator("I_MM_SMA", overlay = true, max_labels_count = 500)
 
-//────────────────────────────────────────────
-// 📌 INPUTS
-//────────────────────────────────────────────
-group_medias = "📌 Medias"
-lenSmaEntry  = input.int(100, "Longitud SMA entrada",           minval = 1, group = group_medias)
-lenSmaFast   = input.int(25,  "Longitud SMA rápida (SMA25)",    minval = 1, group = group_medias)
-lenSmaSlow   = input.int(50,  "Longitud SMA lenta (SMA50)",     minval = 1, group = group_medias)
-
+//────────────────────────────────────────────//
+// 📌 INPUTS                                  //
+//────────────────────────────────────────────//
 group_sl = "📌 Stop Loss"
 slLookback = input.int(5, "Velas para calcular SL", minval = 1, group = group_sl)
-
-group_slope = "📌 Filtro pendiente SMA25"
-slopeLen    = input.int(20,     "Velas para calcular pendiente", minval = 1, group = group_slope)
-slopeThrPct = input.float(0.1, "Pendiente mínima (%)", step = 0.01, group = group_slope)
 
 group_sess = "📌 Horario operativa"
 tradingSession = input.session("0800-2200", "Horario (HHMM-HHMM)", group = group_sess)
@@ -25,13 +16,23 @@ tradingSession = input.session("0800-2200", "Horario (HHMM-HHMM)", group = group
 //────────────────────────────────────────────
 // 📌 CÁLCULO DE MEDIAS
 //────────────────────────────────────────────
-smaEntry = ta.sma(close, lenSmaEntry)   // SMA100 por defecto
-smaFast  = ta.sma(close, lenSmaFast)    // SMA25 por defecto
-smaSlow  = ta.sma(close, lenSmaSlow)    // SMA50 por defecto
+smaEntry = ta.sma(close, 100)   
+smaFast  = ta.sma(close, 25)    
+smaSlow  = ta.sma(close, 50)   
 
-plot(smaEntry, "SMA entrada (100)", color = color.orange, linewidth = 2)
-plot(smaFast,  "SMA rápida (25)",   color = color.new(color.teal, 0))
-plot(smaSlow,  "SMA lenta (50)",    color = color.new(color.blue, 0))
+plot(smaEntry, "SMA entrada (100)", color = color.blue, linewidth = 3)
+plot(smaFast,  "SMA rápida (25)",   color = color.white,  linewidth = 1)
+plot(smaSlow,  "SMA lenta (50)",    color = color.purple,   linewidth = 2)
+
+// Estructura 25–50
+bullStruct = smaFast > smaSlow
+bearStruct = smaFast < smaSlow
+
+//────────────────────────────────────────────
+// 📌 TENDENCIA
+//────────────────────────────────────────────
+priceState = close > smaEntry ? 1 : close < smaEntry ? -1 : 0
+
 
 //────────────────────────────────────────────
 // 📌 HORARIO DE OPERATIVA
@@ -44,51 +45,58 @@ sessionOpen = inSession and not inSession[1]
 sessionClose = not inSession and inSession[1]
 
 //────────────────────────────────────────────
-// 📌 CONDICIONES DE ENTRADA (precio–SMA100)
+// 📌 CONDICIONES DE ENTRADA
 //────────────────────────────────────────────
 priceCrossUp   = ta.crossover(close, smaEntry)   // Precio cruza al alza la SMA100
 priceCrossDown = ta.crossunder(close, smaEntry)  // Precio cruza a la baja la SMA100
 
 // Stop Loss dinámico (últimas N velas)
-slLong  = ta.lowest(low,  slLookback)   // SL para BUY → mínimo últimas N velas
-slShort = ta.highest(high, slLookback)  // SL para SELL → máximo últimas N velas
+slLong  = ta.lowest(low,  slLookback) 
+slShort = ta.highest(high, slLookback)  
 
-// Pendiente SMA25 en %
-float slopeFast = 0.0
-if slopeLen > 0 and not na(smaFast[slopeLen])
-    slopeFast := (smaFast - smaFast[slopeLen]) / smaFast[slopeLen] * 100.0
-else
-    slopeFast := 0.0
-
-slopeOkLong  = slopeFast >  slopeThrPct    // Solo BUY si pendiente positiva suficiente
-slopeOkShort = slopeFast < -slopeThrPct    // Solo SELL si pendiente negativa suficiente
-
-//TODO: Añadir filtro de volumen, velocidad, distancia... slopeFast pendiente
-enterLong  = priceCrossUp   and inSession
-enterShort = priceCrossDown and inSession
+//TODO: Añadir filtro de volumen, velocidad, distancia...
+enterLong  = priceCrossUp   and inSession and bullStruct
+enterShort = priceCrossDown and inSession and bearStruct
 
 //────────────────────────────────────────────
-// 📌 CRUCES SMA25–SMA50 (ALERTAS DE TP / CIERRE)
+// 📌 CRUCES SMA25–SMA50
 //────────────────────────────────────────────
 smaCrossUp   = ta.crossover(smaFast, smaSlow)   // SMA25 cruza al alza SMA50
 smaCrossDown = ta.crossunder(smaFast, smaSlow)  // SMA25 cruza a la baja SMA50
-
-closeSignal = (smaCrossUp or smaCrossDown) and inSession
 
 // Precio TP sugerido = close en el cruce SMA25–SMA50
 tpPrice = close
 
 //────────────────────────────────────────────
-// 📌 LÍNEA DE SL GRÁFICA (última entrada)
+// 📌 LÍNEA DE SL GRÁFICA 
 //────────────────────────────────────────────
 var float slLine = na
+var bool inLong  = false
+var bool inShort = false
 
 if enterLong
     slLine := slLong
+    inLong  := true
 else if enterShort
     slLine := slShort
-else if closeSignal
+    inShort := true
+
+closeLongByCross  = inLong  and smaCrossDown and inSession
+closeShortByCross = inShort and smaCrossUp   and inSession
+
+closeSignal = (closeLongByCross or closeShortByCross)
+
+if closeSignal
     slLine := na
+else if closeLongByCross
+    closeLongByCross := false
+else if closeShortByCross
+    closeShortByCross := false
+
+if sessionClose
+    slLine :=na
+    closeLongByCross :=false
+    closeShortByCross := false
 
 //────────────────────────────────────────────
 // 📌 ALERTAS
