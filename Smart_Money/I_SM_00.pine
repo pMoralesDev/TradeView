@@ -26,6 +26,32 @@ alertOnHit  = input.bool(false, "Alertar cuando el precio toca el nivel", group=
 touchTolPc  = input.float(0.02, "Tolerancia toque (%)", step=0.01, group=group_alert)
 
 //────────────────────────────────────────────
+// 📈 MEDIAS MÓVILES
+//────────────────────────────────────────────
+
+tf = "1" 
+
+// ema25_1m  = request.security(syminfo.tickerid, tf, ta.ema(close, 25))
+ema50_1m  = request.security(syminfo.tickerid, tf, ta.ema(close, 50))
+// sma100_1m = request.security(syminfo.tickerid, tf, ta.sma(close, 100))
+sma200_1m = request.security(syminfo.tickerid, tf, ta.sma(close, 200))
+
+// plot(ema25_1m,  title="EMA 25 (1m)",  color=color.white,  linewidth=1)
+// plot(sma100_1m, title="SMA 100 (1m)", color=color.purple, linewidth=1)
+plot(ema50_1m,  title="EMA 50 (1m)",  color=color.white, linewidth=1)
+plot(sma200_1m, title="SMA 200 (1m)", color=color.purple,   linewidth=1)
+
+ema25  = ta.ema(close, 25)
+ema50  = ta.ema(close, 50)
+sma100 = ta.sma(close, 100)
+sma200 = ta.sma(close, 200)
+
+// plot(ema25,  title="EMA 25",  color=color.white,  linewidth=1)
+// plot(sma100, title="SMA 100", color=color.purple, linewidth=1)
+plot(ema50,  title="EMA 50",  color=color.yellow, linewidth=3)
+plot(sma200, title="SMA 200", color=color.blue,   linewidth=3)
+
+//────────────────────────────────────────────
 // 📌 CÁLCULOS
 //────────────────────────────────────────────
 hh = ta.highest(high, len)
@@ -168,30 +194,5 @@ eventMsg =
   :  hitLL   ? "📍 Toque LL"
   :  "Evento SMC"
 
-
 if sendAll and barstate.isconfirmed
     alert("🔔 " + syminfo.ticker + " | " + eventMsg, alert.freq_once_per_bar_close)
-
-
-//Siguentes pasos
-// 🔗 Flujo SMC correcto (muy importante)
-
-// Sweep (inducción)
-
-// Desplazamiento (impulso fuerte)
-
-// BOS / CHOCH
-
-// Mitigación
-
-// Entrada
-
-// Tu indicador ya cubre el paso 1 de forma excelente.
-
-// Si quieres, siguiente paso lógico:
-
-// Añadir BOS / CHOCH automático
-
-// Filtrar alertas para solo sweeps + contexto válido
-
-// Detectar falsos sweeps (ruido)
