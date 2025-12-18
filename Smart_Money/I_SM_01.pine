@@ -1,0 +1,107 @@
+//@version=6
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+indicator("I_SM_01", overlay=true)
+
+//────────────────────────────────────────────
+// 📌 INPUTS
+//────────────────────────────────────────────
+group_main = "📌 Parámetros"
+emaLen = input.int(50,  "Longitud EMA")
+smaLen = input.int(200, "Longitud SMA")
+slLookback = input.int(50, "Velas para StopLoss", minval=1, group=group_main)
+
+// group_alert = "🔔 Alertas"
+// alertLongOn  = input.bool(true,  "Alertar cruces alcistas", group=group_alert)
+// alertShortOn = input.bool(false, "Alertar cruces bajistas", group=group_alert)
+
+//────────────────────────────────────────────
+// 📈 MEDIAS MÓVILES
+//────────────────────────────────────────────
+ema  = ta.ema(close, emaLen)
+sma = ta.sma(close, smaLen)
+
+//────────────────────────────────────────────
+// 📌 CÁLCULOS
+//────────────────────────────────────────────
+trendAlcista = ema > sma
+trendBajista = ema < sma
+
+crossUp   = ta.crossover(ema, sma)
+crossDown = ta.crossunder(ema, sma)
+
+slLong  = ta.lowest(low[1],  slLookback)
+slShort = ta.highest(high[1], slLookback)
+
+var float longSlPrice  = na
+var float shortSlPrice = na
+var line slLongLine  = na
+var line slShortLine = na
+
+x1 = math.max(0, bar_index - (slLookback + 1))
+
+if crossUp
+    longSlPrice  := slLong
+
+    if not na(slLongLine)
+        line.delete(slLongLine)
+    if not na(slShortLine)
+        line.delete(slShortLine), slShortLine := na
+
+    slLongLine := line.new(
+        x1, longSlPrice,
+        bar_index, longSlPrice,
+        extend=extend.right,
+        color=color.green, width=2, style=line.style_dashed
+    )
+
+    label.new(bar_index, low, "+", style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
+
+if crossDown
+    shortSlPrice := slShort
+    if not na(slShortLine)
+        line.delete(slShortLine)
+    if not na(slLongLine)
+        line.delete(slLongLine), slLongLine := na
+
+    slShortLine := line.new(
+        x1, shortSlPrice,
+        bar_index, shortSlPrice,
+        extend=extend.right,
+        color=color.red, width=2, style=line.style_dashed
+    )
+
+    label.new(bar_index, high, "-", style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
+
+
+//────────────────────────────────────────────
+// 🎨 Gráficos
+//────────────────────────────────────────────
+
+bgcolor(ema > sma ? color.new(color.green, 92) : color.new(color.red, 92))
+
+plot(ema, title="EMA", color=color.yellow, linewidth=2)
+plot(sma, title="SMA", color=color.blue, linewidth=2)
+
+plotshape(crossUp, title="Cruce alcista", style=shape.triangleup,
+     location=location.belowbar, color=color.green, size=size.small, display=display.all)
+
+plotshape(crossDown, title="Cruce bajista", style=shape.triangledown,
+     location=location.abovebar, color=color.red, size=size.small, display=display.all)
+
+
+//────────────────────────────────────────────
+// 🔔 ALERTAS
+//────────────────────────────────────────────
+if crossUp
+    slTxt = str.tostring(longSlPrice, format.mintick)
+    sym   = syminfo.ticker
+    msg   = sym + "📈 COMPRA-" +"\n" + "SL: " + slTxt
+    alert(msg, alert.freq_once_per_bar_close)
+
+if crossDown
+    slTxt = str.tostring(shortSlPrice, format.mintick)
+    sym   = syminfo.ticker
+    msg   = sym +"📉 VENTA-" +"\n" + "SL: " + slTxt
+    alert(msg, alert.freq_once_per_bar_close)
