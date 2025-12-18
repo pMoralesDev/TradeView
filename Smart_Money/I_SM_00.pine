@@ -4,7 +4,6 @@
 //@version=6
 indicator("I_SM_00", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=50)
 
-
 //────────────────────────────────────────────
 // 📌 INPUTS
 //────────────────────────────────────────────
@@ -22,25 +21,21 @@ showEQ     = input.bool(true, "Mostrar EQ", group=group_vis)
 showEqLbl  = input.bool(true, "Etiqueta EQ", group=group_vis)
 
 group_alert = "🔔 Alertas"
-alertSendSM  = input.bool(true,  "Alertar Smart Money", group=group_alert)
-alertSendMM  = input.bool(true, "Alertar Cruce Medias", group=group_alert)
+alertOnNew  = input.bool(true,  "Alertar cuando se crea un nuevo nivel (nuevo HH/LL)", group=group_alert)
+alertOnHit  = input.bool(false, "Alertar cuando el precio toca el nivel", group=group_alert)
 touchTolPc  = input.float(0.02, "Tolerancia toque (%)", step=0.01, group=group_alert)
 
 //────────────────────────────────────────────
 // 📈 MEDIAS MÓVILES
 //────────────────────────────────────────────
 
-tf = "1" 
-
-ema50_1m  = request.security(syminfo.tickerid, tf, ta.ema(close, 50))
-sma200_1m = request.security(syminfo.tickerid, tf, ta.sma(close, 200))
-
-plot(ema50_1m,  title="EMA 50 (1m)",  color=color.white, linewidth=1)
-plot(sma200_1m, title="SMA 200 (1m)", color=color.purple,   linewidth=1)
-
+ema25  = ta.ema(close, 25)
 ema50  = ta.ema(close, 50)
+sma100 = ta.sma(close, 100)
 sma200 = ta.sma(close, 200)
 
+plot(ema25,  title="EMA 25",  color=color.white,  linewidth=1)
+plot(sma100, title="SMA 100", color=color.purple, linewidth=1)
 plot(ema50,  title="EMA 50",  color=color.yellow, linewidth=3)
 plot(sma200, title="SMA 200", color=color.blue,   linewidth=3)
 
@@ -160,45 +155,23 @@ hitLL = not na(lastLL) and low  <= (lastLL + tolLL)
 sweepHH = not na(lastHH) and high > lastHH and close < lastHH
 sweepLL = not na(lastLL) and low  < lastLL and close > lastLL
 
-///────────────────────────────────────────────
-// 🔔 ALERTAS CRUCE EMA50/SMA200 EN 1m (FIABLE desde TF 1H)
-//   - Dispara 1 alerta por cada cruce 1m confirmado
-//────────────────────────────────────────────
-tfMM = "1"
-
-// Cruce ALCISTA confirmado en 1m -> devolvemos el time del minuto, si no, na
-bullTime = request.security(syminfo.tickerid, tfMM,
-     (ta.crossover(ta.ema(close, 50), ta.sma(close, 200)) and barstate.isconfirmed) ? time : na,
-     barmerge.gaps_off, barmerge.lookahead_off)
-
-// Cruce BAJISTA confirmado en 1m -> devolvemos el time del minuto, si no, na
-bearTime = request.security(syminfo.tickerid, tfMM,
-     (ta.crossunder(ta.ema(close, 50), ta.sma(close, 200)) and barstate.isconfirmed) ? time : na,
-     barmerge.gaps_off, barmerge.lookahead_off)
-
-// Anti-duplicado (si el script recalcula varias veces, no repite alertas)
-var int lastBullTime = na
-var int lastBearTime = na
-
-newBull = not na(bullTime) and bullTime != lastBullTime
-newBear = not na(bearTime) and bearTime != lastBearTime
-
-if alertSendMM and newBull
-    alert("🟢 " + syminfo.ticker + " | Cruce ALCISTA EMA50/SMA200 (1m confirmado)", alert.freq_all)
-    lastBullTime := bullTime
-
-if alertSendMM and newBear
-    alert("🔴 " + syminfo.ticker + " | Cruce BAJISTA EMA50/SMA200 (1m confirmado)", alert.freq_all)
-    lastBearTime := bearTime
-
-// (Opcional) por si prefieres alertcondition además de alert()
-alertcondition(alertSendMM and newBull, title="Cruce alcista 1m confirmado", message="🟢 Cruce alcista EMA50/SMA200 (1m confirmado)")
-alertcondition(alertSendMM and newBear, title="Cruce bajista 1m confirmado", message="🔴 Cruce bajista EMA50/SMA200 (1m confirmado)")
-
-
 //────────────────────────────────────────────
 // 🔔 ALERTAS
 //────────────────────────────────────────────
+alertcondition(alertOnNew and newHH, title="Nuevo HH (ventana N)", message="🟥 Nuevo HH creado en la ventana de N velas")
+alertcondition(alertOnNew and newLL, title="Nuevo LL (ventana N)", message="🟩 Nuevo LL creado en la ventana de N velas")
+
+alertcondition(alertOnHit and hitHH, title="Toque HH (último HH confirmado)", message="📍 Precio tocó el último HH confirmado")
+alertcondition(alertOnHit and hitLL, title="Toque LL (último LL confirmado)", message="📍 Precio tocó el último LL confirmado")
+
+alertcondition(sweepHH, title="Sweep HH (barrido liquidez arriba)", message="🧲 Sweep arriba: mecha rompe HH y cierre vuelve debajo (posible trampa)")
+alertcondition(sweepLL, title="Sweep LL (barrido liquidez abajo)", message="🧲 Sweep abajo: mecha rompe LL y cierre vuelve encima (posible trampa)")
+
+//────────────────────────────────────────────
+// 🔔 ALERTA GLOBAL CON MENSAJE DINÁMICO + SÍMBOLO
+//────────────────────────────────────────────
+
+sendAll = newHH or newLL or hitHH or hitLL or sweepHH or sweepLL
 
 eventMsg =
      newHH   ? "🟥 Nuevo HH"
@@ -209,5 +182,28 @@ eventMsg =
   :  hitLL   ? "📍 Toque LL"
   :  "Evento SMC"
 
-if alertSendSM and barstate.isconfirmed
+if sendAll and barstate.isconfirmed
     alert("🔔 " + syminfo.ticker + " | " + eventMsg, alert.freq_once_per_bar_close)
+
+//Siguentes pasos
+// 🔗 Flujo SMC correcto (muy importante)
+
+// Sweep (inducción)
+
+// Desplazamiento (impulso fuerte)
+
+// BOS / CHOCH
+
+// Mitigación
+
+// Entrada
+
+// Tu indicador ya cubre el paso 1 de forma excelente.
+
+// Si quieres, siguiente paso lógico:
+
+// Añadir BOS / CHOCH automático
+
+// Filtrar alertas para solo sweeps + contexto válido
+
+// Detectar falsos sweeps (ruido)
