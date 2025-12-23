@@ -1,0 +1,144 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © AlgoAlpha
+
+//@version=6
+indicator("I_SM_02", shorttitle="Custom - AlgoAlpha - 0️⃣Zero Lag Signals", overlay=true)
+
+// ─────────────────────────────────────────────
+// 📌 INPUTS
+// ─────────────────────────────────────────────
+length = input.int(70, "Length", tooltip="The Look-Back window for the Zero-Lag EMA calculations", group="Main Calculations")
+mult   = input.float(1.2, "Band Multiplier", tooltip="This value controls the thickness of the bands, a larger value makes the indicato less noisy", group="Main Calculations")
+
+t1 = input.timeframe("1",  "Time frame 1", group="Extra Timeframes")
+t2 = input.timeframe("3",  "Time frame 2", group="Extra Timeframes")
+t3 = input.timeframe("5",  "Time frame 3", group="Extra Timeframes")
+t4 = input.timeframe("15", "Time frame 4", group="Extra Timeframes")
+t5 = input.timeframe("60", "Time frame 5", group="Extra Timeframes")
+
+green = input.color(#00ffbb, "Bullish Color", group="Appearance")
+red   = input.color(#ff1100, "Bearish Color", group="Appearance")
+
+// ─────────────────────────────────────────────
+// 📈 CORE
+// ─────────────────────────────────────────────
+src = close
+lag = math.floor((length - 1) / 2)
+
+zlema = ta.ema(src + (src - src[lag]), length)
+volatility = ta.highest(ta.atr(length), length * 3) * mult
+
+var int trend = 0
+if ta.crossover(close, zlema + volatility)
+    trend := 1
+if ta.crossunder(close, zlema - volatility)
+    trend := -1
+
+// ─────────────────────────────────────────────
+// 🎨 PLOTS (ZLEMA + BANDS)
+// ─────────────────────────────────────────────
+zlemaColor = trend == 1 ? color.new(green, 70) : color.new(red, 70)
+m = plot(zlema, title="Zero Lag Basis", linewidth=2, color=zlemaColor)
+
+upper = plot(trend == -1 ? zlema + volatility : na, style=plot.style_linebr, color=color.new(red, 90), title="Upper Deviation Band")
+lower = plot(trend == 1  ? zlema - volatility : na, style=plot.style_linebr, color=color.new(green, 90), title="Lower Deviation Band")
+
+fill(m, upper, (open + close) / 2, zlema + volatility, color.new(red, 90), color.new(red, 70))
+fill(m, lower, (open + close) / 2, zlema - volatility, color.new(green, 90), color.new(green, 70))
+
+// ─────────────────────────────────────────────
+// 🧭 MTF
+// ─────────────────────────────────────────────
+s1 = request.security(syminfo.tickerid, t1, trend, barmerge.gaps_off, barmerge.lookahead_off)
+s2 = request.security(syminfo.tickerid, t2, trend, barmerge.gaps_off, barmerge.lookahead_off)
+s3 = request.security(syminfo.tickerid, t3, trend, barmerge.gaps_off, barmerge.lookahead_off)
+s4 = request.security(syminfo.tickerid, t4, trend, barmerge.gaps_off, barmerge.lookahead_off)
+s5 = request.security(syminfo.tickerid, t5, trend, barmerge.gaps_off, barmerge.lookahead_off)
+
+s1a = s1 == 1 ? "Bullish" : "Bearish"
+s2a = s2 == 1 ? "Bullish" : "Bearish"
+s3a = s3 == 1 ? "Bullish" : "Bearish"
+s4a = s4 == 1 ? "Bullish" : "Bearish"
+s5a = s5 == 1 ? "Bullish" : "Bearish"
+
+alignedBull = (s1 == 1)  and (s2 == 1)  and (s3 == 1)  and (s4 == 1)  and (s5 == 1)
+alignedBear = (s1 == -1) and (s2 == -1) and (s3 == -1) and (s4 == -1) and (s5 == -1)
+
+allDefined = (s1 != 0) and (s2 != 0) and (s3 != 0) and (s4 != 0) and (s5 != 0)
+
+bullAlignTrig = alignedBull and not alignedBull[1] and allDefined
+bearAlignTrig = alignedBear and not alignedBear[1] and allDefined
+
+// ─────────────────────────────────────────────
+// ✅ “Solo 1 entry” por alineación
+// ─────────────────────────────────────────────
+var bool allowLong  = false
+var bool allowShort = false
+
+if bullAlignTrig
+    allowLong := true
+    allowShort := false
+
+if bearAlignTrig
+    allowShort := true
+    allowLong := false
+
+if not alignedBull
+    allowLong := false
+if not alignedBear
+    allowShort := false
+
+// ─────────────────────────────────────────────
+// 🧾 TABLE (no recrear)
+// ─────────────────────────────────────────────
+var table data_table = table.new(position=position.top_right, columns=2, rows=6, bgcolor=chart.bg_color, border_width=1, border_color=chart.fg_color, frame_color=chart.fg_color, frame_width=1)
+
+if barstate.islast
+    table.cell(data_table, column=0, row=0, text="Time Frame", text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, column=1, row=0, text="Signal",    text_color=chart.fg_color, text_halign=text.align_center)
+
+    table.cell(data_table, column=0, row=1, text=t1,  text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, column=1, row=1, text=s1a, text_color=chart.fg_color, bgcolor=s1a == "Bullish" ? color.new(green, 70) : color.new(red, 70), text_halign=text.align_center)
+
+    table.cell(data_table, column=0, row=2, text=t2,  text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, column=1, row=2, text=s2a, text_color=chart.fg_color, bgcolor=s2a == "Bullish" ? color.new(green, 70) : color.new(red, 70), text_halign=text.align_center)
+
+    table.cell(data_table, column=0, row=3, text=t3,  text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, column=1, row=3, text=s3a, text_color=chart.fg_color, bgcolor=s3a == "Bullish" ? color.new(green, 70) : color.new(red, 70), text_halign=text.align_center)
+
+    table.cell(data_table, column=0, row=4, text=t4,  text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, column=1, row=4, text=s4a, text_color=chart.fg_color, bgcolor=s4a == "Bullish" ? color.new(green, 70) : color.new(red, 70), text_halign=text.align_center)
+
+    table.cell(data_table, column=0, row=5, text=t5,  text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, column=1, row=5, text=s5a, text_color=chart.fg_color, bgcolor=s5a == "Bullish" ? color.new(green, 70) : color.new(red, 70), text_halign=text.align_center)
+
+// ─────────────────────────────────────────────
+// 🔔 ALERTAS (entry filtrada por 5TF + solo 1 por alineación)
+// ─────────────────────────────────────────────
+bullEntrySig = ta.crossover(close, zlema) and alignedBull and allowLong
+bearEntrySig = ta.crossunder(close, zlema) and alignedBear and allowShort
+
+longSlPrice  = zlema - volatility
+shortSlPrice = zlema + volatility
+
+slLongTxt  = str.tostring(longSlPrice,  format.mintick)
+slShortTxt = str.tostring(shortSlPrice, format.mintick)
+
+sym = syminfo.ticker
+
+if bullEntrySig
+    alert(sym + " 📈 BUY\n" + "SL: " + slLongTxt, alert.freq_once_per_bar_close)
+    allowLong := false
+
+if bearEntrySig
+    alert(sym + " 📉 SELL\n" + "SL: " + slShortTxt, alert.freq_once_per_bar_close)
+    allowShort := false
+
+// ─────────────────────────────────────────────
+// 🎨 Señales en gráfico
+// ─────────────────────────────────────────────
+plotchar(ta.crossover(trend, 0)  ? zlema - volatility : na, "Bullish Trend", "▲", textcolor=chart.fg_color, location.absolute, green, size=size.tiny)
+plotchar(ta.crossunder(trend, 0) ? zlema + volatility : na, "Bearish Trend", "▼", textcolor=chart.fg_color, location.absolute, red, size=size.tiny)
+
+plotshape(bullEntrySig ? zlema - volatility * 1.5 : na, "Bullish Entry",shape.labelup, location.absolute, green, text="▲", textcolor=chart.fg_color, size=size.small)
+plotshape(bearEntrySig ? zlema + volatility * 1.5 : na, "Bearish Entry", shape.labeldown, location.absolute, red, text="▼", textcolor=chart.fg_color, size=size.small)
