@@ -109,3 +109,32 @@ alertcondition(ta.cross(s5, 0), "(Bullish or Bearish) Trend Time Frame 5")
 
 alertcondition(ta.crossover(close, zlema) and trend == 1 and trend[1] == 1, "Bullish Entry")
 alertcondition(ta.crossunder(close, zlema) and trend == -1 and trend[1] == -1, "Bearish Entry")
+
+// ─────────────────────────────────────────────
+// 🔔 ALERTAS
+// ─────────────────────────────────────────────
+bearTrendSig = ta.crossunder(trend, 0)           
+bullTrendSig = ta.crossover(trend, 0)            
+
+bullEntrySig = ta.crossover(close, zlema) and trend == 1 and trend[1] == 1   
+bearEntrySig = ta.crossunder(close, zlema) and trend == -1 and trend[1] == -1 
+
+longSlPrice  = zlema - volatility
+shortSlPrice = zlema + volatility
+
+slLongTxt  = str.tostring(longSlPrice,  format.mintick)
+slShortTxt = str.tostring(shortSlPrice, format.mintick)
+
+sym = syminfo.ticker
+
+if bullTrendSig
+    alert(sym + " 📈 BUY\n" + "SL: " + slLongTxt, alert.freq_once_per_bar_close)
+
+if bearTrendSig
+    alert(sym + " 📉 SELL\n" + "SL: " + slShortTxt, alert.freq_once_per_bar_close)
+
+if bullEntrySig
+    alert(sym + " ▲ \n" + "SL: " + slLongTxt, alert.freq_once_per_bar_close)
+
+if bearEntrySig
+    alert(sym + " ▼ \n" + "SL: " + slShortTxt, alert.freq_once_per_bar_close)

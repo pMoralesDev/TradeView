@@ -137,8 +137,8 @@ if bearEntrySig
 // ─────────────────────────────────────────────
 // 🎨 Señales en gráfico
 // ─────────────────────────────────────────────
-plotchar(ta.crossover(trend, 0)  ? zlema - volatility : na, "Bullish Trend", "▲", textcolor=chart.fg_color, location.absolute, green, size=size.tiny)
-plotchar(ta.crossunder(trend, 0) ? zlema + volatility : na, "Bearish Trend", "▼", textcolor=chart.fg_color, location.absolute, red, size=size.tiny)
+plotchar(ta.crossover(trend, 0)  ? zlema - volatility : na, "Bullish Trend", "▲", location.absolute, green, size=size.tiny)
+plotchar(ta.crossunder(trend, 0) ? zlema + volatility : na, "Bearish Trend", "▼", location.absolute, red, size=size.tiny)
 
 plotshape(bullEntrySig ? zlema - volatility * 1.5 : na, "Bullish Entry",shape.labelup, location.absolute, green, text="▲", textcolor=chart.fg_color, size=size.small)
 plotshape(bearEntrySig ? zlema + volatility * 1.5 : na, "Bearish Entry", shape.labeldown, location.absolute, red, text="▼", textcolor=chart.fg_color, size=size.small)
