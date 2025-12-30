@@ -1,8 +1,8 @@
 // This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © AlgoAlpha
+// © PMoralesDev
 
 //@version=6
-indicator("I_MM_00", shorttitle="PMorales_MediasMóviles_SignalAlerts", overlay=true)
+indicator("I_MM_00", shorttitle="PMoraleDev_MediasMóviles_SignalAlerts", overlay=true)
 
 // ─────────────────────────────────────────────
 // 📌 INPUTS
@@ -12,37 +12,59 @@ indicator("I_MM_00", shorttitle="PMorales_MediasMóviles_SignalAlerts", overlay=
 emaLen = input.int(50,  "Longitud EMA", group = "🔹 MEDIAS")
 smaLen = input.int(200, "Longitud SMA", group = "🔹 MEDIAS")
 
-//🔹 UMBRALES🔹 
-tfCalc = input.timeframe("1", "Timeframe cálculo", options = ["1", "5", "15", "30", "60", "240", "D"], group = "🔹 UMBRALES")
-lenNorm  = input.int(200, "Velas para normalizar", minval=10, step=10,   group = "🔹 UMBRALES")
-umbralN  = input.float(0.6, "Umbral normalizado",  step=0.05,   group = "🔹 UMBRALES")
-umbral_tend_fuerte = input.float(0.5, "Umbral Extremos",  step=0.05,   group = "🔹 UMBRALES")
-umbral_tend_normal = input.float(0.3, "Umbral tendencia",  step=0.05,   group = "🔹 UMBRALES")
-umbral_lateral = input.float(0.2, "Umbral lateral",  step=0.05,   group = "🔹 UMBRALES")
+//🔹 TIMEFRAMES🔹 
+tEntry = input.timeframe("1",  "Entradas", group="🔹 TIMEFRAMES")
+tTrend = input.timeframe("15", "Tendencia", group="🔹 TIMEFRAMES")
 
-//🔹 CONTADORES🔹 
-lenMediaDist   = input.int(50, "Velas tendencia",           minval=1, group = "🔹 CONTADORES")
-lenSignWindow  = input.int(50, "Ventana cambios de signo",  minval=2, group = "🔹 CONTADORES")
-maxSignChanges = input.int(3,  "Máx cambios de signo",      minval=0, group = "🔹 CONTADORES")
-
-//🔹 VELOCIDAD🔹 
-fastLen           = input.int(5,  "EMA MACD rápida",  minval=1, group = "🔹 VELOCIDAD")
-slowLen           = input.int(20, "EMA MACD lenta",   minval=1, group = "🔹 VELOCIDAD")
-strongMomentumThr = input.float(0.35, "Umbral velocidad", step=0.05, group = "🔹 VELOCIDAD")
-
-//🔹 IMPULSO🔹
-exitImpThr      = input.float(0.25, "Fuerza impulso",      step=0.05, group = "🔹 IMPULSO")
-exitConfirmBars = input.int(3,      "Velas confirmación",  minval=1,  group = "🔹 IMPULSO")
-
-t1 = input.timeframe("1",  "TimeFrame Entradas", group="Timeframes")
-t2 = input.timeframe("5",  "TimeFrame 1", group="Timeframes")
-t3 = input.timeframe("15", "TimeFrame 2", group="Timeframes")
-t4 = input.timeframe("60", "TimeFrame 3", group="Timeframes")
-t5 = input.timeframe("240", "TimeFrame Tendencia", group="Timeframes")
-
+//🔹 APPARENCE🔹 
 green = input.color(#00ffbb, "Bullish Color", group="Appearance")
 red   = input.color(#ff1100, "Bearish Color", group="Appearance")
+
+//🔹 CONSTANTS🔹 
+var int trend = 0
+var bool alignedBullish = false
+var bool alignedBearish = false
+var bool position = false
+
 
 // ─────────────────────────────────────────────
 // 📈 CORE
 // ─────────────────────────────────────────────
+emaEntry = request.security(syminfo.tickerid, tEntry, ta.ema(close, emaLen))
+smaEntry = request.security(syminfo.tickerid, tEntry, ta.sma(close, smaLen))
+emaTrend = request.security(syminfo.tickerid, tTrend, ta.ema(close, emaLen))
+smaTrend = request.security(syminfo.tickerid, tTrend, ta.sma(close, smaLen))
+
+if emaTrend > smaTrend
+    trend := 1
+
+if emaTrend < smaTrend
+    trend := -1
+
+if trend == 1 and not position
+    if ta.crossover(emaEntry, smaEntry)
+        label.new(bar_index, high, "Long Entry", style=label.style_label_up, color=color.new(green, 0), textcolor=color.black, size=size.small)
+        position := true
+        alignedBullish := true
+    if ta.crossunder(emaEntry, smaEntry)
+        position := false
+        alignedBullish := false
+
+if trend == -1 and not position
+    if ta.crossunder(emaEntry, smaEntry)
+        label.new(bar_index, low, "Short Entry", style=label.style_label_down, color=color.new(red, 0), textcolor=color.black, size=size.small)
+        position := true
+        alignedBearish := true
+    if ta.crossover(emaEntry, smaEntry)
+        position := false
+        alignedBearish := false
+
+// ─────────────────────────────────────────────
+// 🎨 Señales en gráfico
+// ─────────────────────────────────────────────
+
+bullEntry = trend == 1 and not position and ta.crossover(emaEntry, smaEntry)
+bearEntry = trend == -1 and not position and ta.crossunder(emaEntry, smaEntry)
+
+plotchar(bullEntry ? low : na,, "Bullish Trend", "▲", location.absolute, green, size=size.tiny)
+plotchar(bearEntry ? high : na, "Bearish Trend", "▼", location.absolute, red, size=size.tiny)

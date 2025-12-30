@@ -1,0 +1,85 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © PMoralesDev
+
+//@version=6
+indicator("I_SM_03", shorttitle="ZLEMA EMA/SMA", overlay=true)
+
+// ─────────────────────────────────────────────
+// 📌 INPUTS
+// ─────────────────────────────────────────────
+
+//🔹 MEDIAS🔹
+group_ma  = "🔹 MEDIAS"
+emaLen    = input.int(50,  "EMA rápida (base)", minval=1, group=group_ma)
+smaLen    = input.int(200, "SMA lenta (filtro)", minval=1, group=group_ma)
+
+group_atr = "🔹 Canal ATR"
+atrLen    = input.int(70,  "ATR Length", minval=1, group=group_atr)
+mult      = input.float(1.2, "ATR Multiplier", minval=0.1, step=0.1, group=group_atr)
+atrLook   = input.int(3, "ATR lookback (x ATR Len)", minval=1, group=group_atr)
+
+group_app = "🔹 Appearance"
+green     = input.color(#00ffbb, "Bullish Color", group=group_app)
+red       = input.color(#ff1100, "Bearish Color", group=group_app)
+
+// ─────────────────────────────────────────────
+// 📈 CORE: ZLEMA-like EMA + SMA filter + ATR channel
+// ─────────────────────────────────────────────
+src = close
+
+// ZLEMA: proyecta precio hacia delante y luego suaviza con EMA
+lag  = math.floor((emaLen - 1) / 2)
+proj = src + (src - src[lag])
+
+basis = ta.ema(proj, emaLen)     // base rápida tipo ZLEMA
+slow  = ta.sma(src, smaLen)      // filtro lento
+
+// Canal de volatilidad: ATR máximo reciente * multiplicador
+atrNow      = ta.atr(atrLen)
+atrMax      = ta.highest(atrNow, atrLen * atrLook)
+volatility  = atrMax * mult
+
+upperBand = basis + volatility
+lowerBand = basis - volatility
+
+// ─────────────────────────────────────────────
+// 🧠 TENDENCIA: por ruptura del canal + filtro SMA
+// ─────────────────────────────────────────────
+var int trend = 0
+
+// BULLISH: rompe por arriba y además la base está por encima del filtro lento
+if ta.crossover(close, upperBand) and basis > slow
+    trend := 1
+
+// BEARISH: rompe por abajo y además base por debajo del filtro lento
+if ta.crossunder(close, lowerBand) and basis < slow
+    trend := -1
+
+// ─────────────────────────────────────────────
+// 🎨 PLOTS
+// ─────────────────────────────────────────────
+basisColor = trend == 1 ? color.new(green, 0) : trend == -1 ? color.new(red, 0) : color.new(color.gray, 0)
+
+pBasis = plot(basis, "Basis (EMA ZLEMA-like)", color=color.new(basisColor, 30), linewidth=2)
+pSlow  = plot(slow,  "SMA Filtro",            color=color.new(color.gray, 60), linewidth=2)
+
+pUpper = plot(trend == -1 ? upperBand : na, "Upper Band", style=plot.style_linebr, color=color.new(red, 90))
+pLower = plot(trend ==  1 ? lowerBand : na, "Lower Band", style=plot.style_linebr, color=color.new(green, 90))
+
+mid = (open + close) / 2
+
+fill(pBasis, pUpper, mid, upperBand, color.new(red, 90),   color.new(red, 70))
+fill(pBasis, pLower, mid, lowerBand, color.new(green, 90), color.new(green, 70))
+
+
+// ─────────────────────────────────────────────
+// 🔔 ALERTAS
+// ─────────────────────────────────────────────
+bullTrendTrig = ta.crossover(trend, 0)
+bearTrendTrig = ta.crossunder(trend, 0)
+
+plotchar(bullTrendTrig ? low : na,  "Bullish Trend", "▲", location.absolute, green, size=size.tiny)
+plotchar(bearTrendTrig ? high : na, "Bearish Trend", "▼", location.absolute, red,   size=size.tiny)
+
+alertcondition(bullTrendTrig, title="Bullish Trend (Break ATR Channel)", message="📈 Bullish trend: ruptura por arriba del canal ATR con filtro SMA")
+alertcondition(bearTrendTrig, title="Bearish Trend (Break ATR Channel)", message="📉 Bearish trend: ruptura por abajo del canal ATR con filtro SMA")
