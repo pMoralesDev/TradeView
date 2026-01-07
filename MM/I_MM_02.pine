@@ -1,0 +1,209 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © PMoralesDev
+
+//@version=6
+indicator("I_MM_01", shorttitle="Cruces SMA", overlay=true)
+
+// ─────────────────────────────────────────────
+// 📌 INPUTS
+// ─────────────────────────────────────────────
+
+//🔹 UMBRALES🔹
+group_ma  = "🔹 UMBRALES"
+umbral10     = input.float(0.015, "Umbral SMA10 (%)", step=0.001, group=group_ma)
+umbral25     = input.float(0.01, "Umbral SMA25 (%)", step=0.001, group=group_ma)
+umbral50     = input.float(0.008, "Umbral SMA50 (%)", step=0.001, group=group_ma)
+umbral100    = input.float(0.006, "Umbral SMA100 (%)", step=0.001, group=group_ma)
+umbral200    = input.float(0.004, "Umbral SMA200 (%)", step=0.001, group=group_ma)
+confirmBars  = input.int(2, "Confirmación salida (N velas)", minval=1, group=group_ma)
+slLookback   = input.int(50, "SL lookback (velas)", minval=1, group=group_ma)
+
+group_app = "🔹 Appearance"
+blue         = input.color(#00BFFF, "SMA200", group=group_app)
+yellow       = input.color(#FFD700, "SMA100", group=group_app)
+purple       = input.color(#8A2BE2, "SMA50", group=group_app)
+orange       = input.color(#FFA500, "SMA25", group=group_app)
+white        = input.color(#FFFFFF, "SMA10", group=group_app)
+
+// ─────────────────────────────────────────────
+// 📈 CORE
+// ─────────────────────────────────────────────
+sma10  = ta.sma(close, 10)
+sma25  = ta.sma(close, 25)
+sma50  = ta.sma(close, 50)
+sma100 = ta.sma(close, 100)
+sma200 = ta.sma(close, 200)
+
+Slope10  = (sma10  - sma10[1])  / sma10[1]  * 100
+Slope25  = (sma25  - sma25[1])  / sma25[1]  * 100
+Slope50  = (sma50  - sma50[1])  / sma50[1]  * 100
+Slope100 = (sma100 - sma100[1]) / sma100[1] * 100
+Slope200 = (sma200 - sma200[1]) / sma200[1] * 100
+
+//🔹 PENDIENTES🔹
+bool pendiente10 = math.abs(Slope10) > umbral10
+bool pendiente25 = math.abs(Slope25) > umbral25
+bool pendiente50 = math.abs(Slope50) > umbral50
+bool pendiente100 = math.abs(Slope100) > umbral100
+bool pendiente200 = math.abs(Slope200) > umbral200
+
+// 🔹 CRUCES🔹
+//      SMA10
+bool bullCross10_25 = ta.crossover(sma10, sma25)
+bool bearCross10_25 = ta.crossunder(sma10, sma25)
+bool bullCross10_50 = ta.crossover(sma10, sma50)
+bool bearCross10_50 = ta.crossunder(sma10, sma50)
+bool bullCross10_100 = ta.crossover(sma10, sma100)
+bool bearCross10_100 = ta.crossunder(sma10, sma100)
+bool bullCross10_200 = ta.crossover(sma10, sma200)
+bool bearCross10_200 = ta.crossunder(sma10, sma200)
+//      SMA25
+bool bullCross25_50 = ta.crossover(sma25, sma50)
+bool bearCross25_50 = ta.crossunder(sma25, sma50)
+bool bullCross25_100 = ta.crossover(sma25, sma100)
+bool bearCross25_100 = ta.crossunder(sma25, sma100)
+bool bullCross25_200 = ta.crossover(sma25, sma200)
+bool bearCross25_200 = ta.crossunder(sma25, sma200)
+//      SMA50
+bool bullCross50_100 = ta.crossover(sma50, sma100)
+bool bearCross50_100 = ta.crossunder(sma50, sma100)
+bool bullCross50_200 = ta.crossover(sma50, sma200)
+bool bearCross50_200 = ta.crossunder(sma50, sma200)
+//      SMA100
+bool bullCross100_200 = ta.crossover(sma100, sma200)
+bool bearCross100_200 = ta.crossunder(sma100, sma200)
+
+//🔹 ESTADOS🔹
+//     SMA10
+var int trend10 = 0
+if bullCross10_25
+    trend10 := 1
+else if bearCross10_25
+    trend10 := -1
+
+//PRUEBA: también considerar cruces con otras SMAs
+
+// Entradas: estado + pendiente + dirección de la pendiente
+bool bullEntry10 = (trend10 == 1) and pendiente10 and (Slope10 > 0)
+bool bearEntry10 = (trend10 == -1) and pendiente10 and (Slope10 < 0)
+
+// ─────────────────────────────────────────────
+// ✅ ENTRADA ÚNICA + ✅ SALIDA CONFIRMADA POR N VELAS (X)
+// ─────────────────────────────────────────────
+
+// Estado interno para controlar señales (no es estrategia)
+var int pos = 0  // 1 long, -1 short, 0 flat
+
+// Gating para alertas (y para que no repita entradas)
+var bool allowLong  = true
+var bool allowShort = true
+
+// Señal única de entrada (solo si estás flat)
+bool bullEntrySig = (pos == 0) and allowLong  and bullEntry10 and not bullEntry10[1]
+bool bearEntrySig = (pos == 0) and allowShort and bearEntry10 and not bearEntry10[1]
+
+// Actualiza posición al entrar
+if bullEntrySig
+    pos := 1
+if bearEntrySig
+    pos := -1
+
+// Salida: cruce de precio con SMA10 + se mantiene N velas
+inLong  = pos == 1
+inShort = pos == -1
+
+longCrossDown = inLong and (close < sma10) and (close[1] >= sma10[1])
+shortCrossUp  = inShort and (close > sma10) and (close[1] <= sma10[1])
+
+var bool longExitArmed  = false
+var bool shortExitArmed = false
+var int  belowCount = 0
+var int  aboveCount = 0
+
+// LONG: armar al cruzar abajo y confirmar N cierres por debajo
+if inLong
+    if longCrossDown
+        longExitArmed := true
+        belowCount := 1
+    else if longExitArmed
+        if close < sma10
+            belowCount += 1
+        else
+            longExitArmed := false
+            belowCount := 0
+else
+    longExitArmed := false
+    belowCount := 0
+
+// SHORT: armar al cruzar arriba y confirmar N cierres por encima
+if inShort
+    if shortCrossUp
+        shortExitArmed := true
+        aboveCount := 1
+    else if shortExitArmed
+        if close > sma10
+            aboveCount += 1
+        else
+            shortExitArmed := false
+            aboveCount := 0
+else
+    shortExitArmed := false
+    aboveCount := 0
+
+bool exitLong  = inLong  and longExitArmed  and (belowCount >= confirmBars)
+bool exitShort = inShort and shortExitArmed and (aboveCount >= confirmBars)
+
+// Al confirmar salida, vuelves a flat y re-permites entradas
+if exitLong or exitShort
+    pos := 0
+    allowLong := true
+    allowShort := true
+
+// ─────────────────────────────────────────────
+// 🎨 PLOTS
+// ─────────────────────────────────────────────
+plot(sma10,  title="SMA 10",  color=color.new(white, 0),   linewidth=1)
+plot(sma25,  title="SMA 25",  color=color.new(orange, 0),  linewidth=1)
+plot(sma50,  title="SMA 50",  color=color.new(purple, 0),  linewidth=2)
+plot(sma100, title="SMA 100", color=color.new(yellow, 0),  linewidth=2)
+plot(sma200, title="SMA 200", color=color.new(blue, 0),    linewidth=3)
+
+// Entradas (únicas)
+// plotchar(bullEntrySig ? low  : na, "Long",  "▲", location.absolute, white, size=size.tiny)
+// plotchar(bearEntrySig ? high : na, "Short", "▼", location.absolute, white, size=size.tiny)
+
+// Salidas (X confirmadas N velas)
+// plotchar(exitLong  ? high : na, "Exit Long",  "✖", location.absolute, white, size=size.tiny)
+// plotchar(exitShort ? low  : na, "Exit Short", "✖", location.absolute, white, size=size.tiny)
+
+//Prueba
+plotchar(pendiente25 ? high : na, "25", "▼▲", location.absolute, white, size=size.tiny)
+
+// ─────────────────────────────────────────────
+// 📍 STOP LOSS (solo para texto de alerta)
+// ─────────────────────────────────────────────
+slLong  = ta.lowest(low, slLookback)
+slShort = ta.highest(high, slLookback)
+
+sym        = syminfo.ticker
+slLongTxt  = str.tostring(slLong,  format.mintick)
+slShortTxt = str.tostring(slShort, format.mintick)
+
+// ─────────────────────────────────────────────
+// 🔔 ALERT() (solo entradas, como pediste)
+// ─────────────────────────────────────────────
+if bullEntrySig
+    alert(sym + " 📈 BUY\n" + "SL: " + slLongTxt, alert.freq_once_per_bar_close)
+    allowLong := false
+
+if bearEntrySig
+    alert(sym + " 📉 SELL\n" + "SL: " + slShortTxt, alert.freq_once_per_bar_close)
+    allowShort := false
+    
+if exitLong
+    alert(sym + " ❌ EXIT LONG\n" + "Cierre bajo SMA10 confirmado (" + str.tostring(confirmBars) + " velas)",
+          alert.freq_once_per_bar_close)
+
+if exitShort
+    alert(sym + " ❌ EXIT SHORT\n" + "Cierre sobre SMA10 confirmado (" + str.tostring(confirmBars) + " velas)",
+          alert.freq_once_per_bar_close)

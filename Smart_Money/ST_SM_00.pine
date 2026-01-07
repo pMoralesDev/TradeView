@@ -1,0 +1,224 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © PMoralesDev
+
+//@version=6
+strategy("ST_SM_00", shorttitle="ZLEMA EMA/SMA MTF STRAT", overlay=true,
+     initial_capital = 100000,
+     commission_type = strategy.commission.percent, commission_value = 0.0,
+     slippage = 0,
+     pyramiding = 0,
+     calc_on_order_fills = true,
+     process_orders_on_close = true)
+
+// ─────────────────────────────────────────────
+// 📌 INPUTS
+// ─────────────────────────────────────────────
+group_ma  = "🔹 MEDIAS"
+emaLen    = input.int(50,  "EMA rápida (base)", minval=1, group=group_ma)
+smaLen    = input.int(200, "SMA lenta (filtro)", minval=1, group=group_ma)
+
+group_atr = "🔹 Canal ATR"
+atrLen    = input.int(70,   "ATR Length", minval=1, group=group_atr)
+mult      = input.float(1.2,"ATR Multiplier", minval=0.1, step=0.1, group=group_atr)
+atrLook   = input.int(3,    "ATR lookback (x ATR Len)", minval=1, group=group_atr)
+
+group_tf  = "🔹 MTF (5 Timeframes)"
+t1 = input.timeframe("1",  "Time frame 1", group=group_tf)
+t2 = input.timeframe("3",  "Time frame 2", group=group_tf)
+t3 = input.timeframe("5",  "Time frame 3", group=group_tf)
+t4 = input.timeframe("15", "Time frame 4", group=group_tf)
+t5 = input.timeframe("60", "Time frame 5", group=group_tf)
+
+group_app = "🔹 Appearance"
+green     = input.color(#00ffbb, "Bullish Color", group=group_app)
+red       = input.color(#ff1100, "Bearish Color", group=group_app)
+
+group_bt  = "⚙️ Strategy"
+qtyPct    = input.float(100, "Order size (% equity)", minval=0.1, maxval=100, step=0.1, group=group_bt)
+dirMode   = input.string("Both", "Direction", options=["Both","Long only","Short only"], group=group_bt)
+closeFlip = input.bool(true, "Close on opposite signal", group=group_bt)
+
+// ─────────────────────────────────────────────
+// 🧠 MOTOR ZLEMA-like (función para MTF)
+// Devuelve trend: 1 bullish, -1 bearish, 0 neutral
+// ─────────────────────────────────────────────
+f_trend() =>
+    src = close
+    lag  = math.floor((emaLen - 1) / 2)
+    proj = src + (src - src[lag])
+    basis = ta.ema(proj, emaLen)
+    slow  = ta.sma(src, smaLen)
+    atrNow = ta.atr(atrLen)
+    atrMax = ta.highest(atrNow, atrLen * atrLook)
+    vol    = atrMax * mult
+    upper  = basis + vol
+    lower  = basis - vol
+    var int t = 0
+    if ta.crossover(close, upper) and basis > slow
+        t := 1
+    if ta.crossunder(close, lower) and basis < slow
+        t := -1
+    t
+
+// ─────────────────────────────────────────────
+// 📈 CORE (TF actual para plots/SL)
+// ─────────────────────────────────────────────
+src = close
+lag  = math.floor((emaLen - 1) / 2)
+proj = src + (src - src[lag])
+
+basis = ta.ema(proj, emaLen)
+slow  = ta.sma(src, smaLen)
+
+atrNow     = ta.atr(atrLen)
+atrMax     = ta.highest(atrNow, atrLen * atrLook)
+volatility = atrMax * mult
+
+upperBand = basis + volatility
+lowerBand = basis - volatility
+
+// Trend local (para colorear/plots)
+var int trend = 0
+if ta.crossover(close, upperBand) and basis > slow
+    trend := 1
+if ta.crossunder(close, lowerBand) and basis < slow
+    trend := -1
+
+// ─────────────────────────────────────────────
+// 🧭 MTF (como el original)
+// ─────────────────────────────────────────────
+s1 = request.security(syminfo.tickerid, t1, f_trend(), barmerge.gaps_off, barmerge.lookahead_off)
+s2 = request.security(syminfo.tickerid, t2, f_trend(), barmerge.gaps_off, barmerge.lookahead_off)
+s3 = request.security(syminfo.tickerid, t3, f_trend(), barmerge.gaps_off, barmerge.lookahead_off)
+s4 = request.security(syminfo.tickerid, t4, f_trend(), barmerge.gaps_off, barmerge.lookahead_off)
+s5 = request.security(syminfo.tickerid, t5, f_trend(), barmerge.gaps_off, barmerge.lookahead_off)
+
+s1a = s1 == 1 ? "Bullish" : s1 == -1 ? "Bearish" : "Neutral"
+s2a = s2 == 1 ? "Bullish" : s2 == -1 ? "Bearish" : "Neutral"
+s3a = s3 == 1 ? "Bullish" : s3 == -1 ? "Bearish" : "Neutral"
+s4a = s4 == 1 ? "Bullish" : s4 == -1 ? "Bearish" : "Neutral"
+s5a = s5 == 1 ? "Bullish" : s5 == -1 ? "Bearish" : "Neutral"
+
+alignedBull = (s1 == 1)  and (s2 == 1)  and (s3 == 1)  and (s4 == 1)  and (s5 == 1)
+alignedBear = (s1 == -1) and (s2 == -1) and (s3 == -1) and (s4 == -1) and (s5 == -1)
+
+allDefined = (s1 != 0) and (s2 != 0) and (s3 != 0) and (s4 != 0) and (s5 != 0)
+
+bullAlignTrig = alignedBull and not alignedBull[1] and allDefined
+bearAlignTrig = alignedBear and not alignedBear[1] and allDefined
+
+// ─────────────────────────────────────────────
+// ✅ “Solo 1 entry” por alineación (igual que original)
+// ─────────────────────────────────────────────
+var bool allowLong  = false
+var bool allowShort = false
+
+if bullAlignTrig
+    allowLong := true
+    allowShort := false
+
+if bearAlignTrig
+    allowShort := true
+    allowLong := false
+
+if not alignedBull
+    allowLong := false
+if not alignedBear
+    allowShort := false
+
+// ─────────────────────────────────────────────
+// 🔔 ENTRADAS
+// ─────────────────────────────────────────────
+bullEntrySig = ta.crossover(close, basis)  and alignedBull and allowLong
+bearEntrySig = ta.crossunder(close, basis) and alignedBear and allowShort
+
+canLong  = dirMode != "Short only"
+canShort = dirMode != "Long only"
+
+// SL dinámico (como en tu indicador)
+longSlPrice  = lowerBand
+shortSlPrice = upperBand
+
+// ─────────────────────────────────────────────
+// 🧾 ÓRDENES (sin qty_percent)
+// ─────────────────────────────────────────────
+
+// Capital a usar (aprox) y cantidad en unidades
+cashToUse = strategy.equity * (qtyPct / 100.0)
+qtyUnits  = cashToUse / close
+
+// Si operas acciones y quieres SIEMPRE entero, descomenta:
+// qtyUnits := math.floor(qtyUnits)
+
+// Evita qty=0 en símbolos caros o % pequeño
+qtyUnits := math.max(qtyUnits, 0)
+
+if bullEntrySig and canLong and qtyUnits > 0
+    if closeFlip
+        strategy.close("Short")
+    strategy.order("Long", strategy.long, qty=qtyUnits)
+    allowLong := false
+
+if bearEntrySig and canShort and qtyUnits > 0
+    if closeFlip
+        strategy.close("Long")
+    strategy.order("Short", strategy.short, qty=qtyUnits)
+    allowShort := false
+
+// ─────────────────────────────────────────────
+// ✅ ALERTCONDITION (para alertas de estrategia)
+// ─────────────────────────────────────────────
+alertcondition(bullEntrySig and canLong,  title="BUY",  message="BUY {{ticker}} | SL: {{plot_0}} | (5TF aligned)")
+alertcondition(bearEntrySig and canShort, title="SELL", message="SELL {{ticker}} | SL: {{plot_1}} | (5TF aligned)")
+
+// ─────────────────────────────────────────────
+// 🎨 PLOTS + FILL (idéntico al indicador)
+// ─────────────────────────────────────────────
+basisColor = trend == 1 ? color.new(green, 0) : trend == -1 ? color.new(red, 0) : color.new(color.gray, 0)
+
+pBasis = plot(basis, "Basis (EMA ZLEMA-like)", color=color.new(basisColor, 30), linewidth=2)
+pSlow  = plot(slow,  "SMA Filtro",            color=color.new(color.gray, 60), linewidth=2)
+
+pUpper = plot(trend == -1 ? upperBand : na, "Upper Band", style=plot.style_linebr, color=color.new(red, 90))
+pLower = plot(trend ==  1 ? lowerBand : na, "Lower Band", style=plot.style_linebr, color=color.new(green, 90))
+
+// plots auxiliares para poder usar {{plot_0}} y {{plot_1}} en alertcondition
+plot(longSlPrice,  "SL Long (plot_0)",  display=display.none)
+plot(shortSlPrice, "SL Short (plot_1)", display=display.none)
+
+mid = (open + close) / 2
+fill(pBasis, pUpper, mid, upperBand, color.new(red, 90),   color.new(red, 70))
+fill(pBasis, pLower, mid, lowerBand, color.new(green, 90), color.new(green, 70))
+
+// ─────────────────────────────────────────────
+// 🎯 SEÑALES EN GRÁFICO
+// ─────────────────────────────────────────────
+plotchar(ta.crossover(trend, 0)  ? lowerBand : na, "Bullish Trend", "▲", location.absolute, green, size=size.tiny)
+plotchar(ta.crossunder(trend, 0) ? upperBand : na, "Bearish Trend", "▼", location.absolute, red,   size=size.tiny)
+
+plotshape(bullEntrySig ? (basis - volatility * 1.5) : na, "Bullish Entry", shape.labelup,   location.absolute, green, text="▲", textcolor=chart.fg_color, size=size.small)
+plotshape(bearEntrySig ? (basis + volatility * 1.5) : na, "Bearish Entry", shape.labeldown, location.absolute, red,   text="▼", textcolor=chart.fg_color, size=size.small)
+
+// ─────────────────────────────────────────────
+// 🧾 TABLE (como el original)
+// ─────────────────────────────────────────────
+var table data_table = table.new(position=position.top_right, columns=2, rows=6, bgcolor=chart.bg_color, border_width=1, border_color=chart.fg_color, frame_color=chart.fg_color, frame_width=1)
+
+if barstate.islast
+    table.cell(data_table, 0, 0, "Time Frame", text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, 1, 0, "Signal",    text_color=chart.fg_color, text_halign=text.align_center)
+
+    table.cell(data_table, 0, 1, t1,  text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, 1, 1, s1a, text_color=chart.fg_color, bgcolor=s1a == "Bullish" ? color.new(green, 70) : s1a == "Bearish" ? color.new(red, 70) : color.new(color.gray, 80), text_halign=text.align_center)
+
+    table.cell(data_table, 0, 2, t2,  text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, 1, 2, s2a, text_color=chart.fg_color, bgcolor=s2a == "Bullish" ? color.new(green, 70) : s2a == "Bearish" ? color.new(red, 70) : color.new(color.gray, 80), text_halign=text.align_center)
+
+    table.cell(data_table, 0, 3, t3,  text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, 1, 3, s3a, text_color=chart.fg_color, bgcolor=s3a == "Bullish" ? color.new(green, 70) : s3a == "Bearish" ? color.new(red, 70) : color.new(color.gray, 80), text_halign=text.align_center)
+
+    table.cell(data_table, 0, 4, t4,  text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, 1, 4, s4a, text_color=chart.fg_color, bgcolor=s4a == "Bullish" ? color.new(green, 70) : s4a == "Bearish" ? color.new(red, 70) : color.new(color.gray, 80), text_halign=text.align_center)
+
+    table.cell(data_table, 0, 5, t5,  text_color=chart.fg_color, text_halign=text.align_center)
+    table.cell(data_table, 1, 5, s5a, text_color=chart.fg_color, bgcolor=s5a == "Bullish" ? color.new(green, 70) : s5a == "Bearish" ? color.new(red, 70) : color.new(color.gray, 80), text_halign=text.align_center)
