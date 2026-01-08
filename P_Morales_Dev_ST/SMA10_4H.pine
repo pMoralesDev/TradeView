@@ -1,0 +1,65 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+strategy("SMA10_4H",
+     overlay            = true,
+     initial_capital    = 100000,
+     currency           = currency.EUR,
+     default_qty_type   = strategy.percent_of_equity,
+     default_qty_value  = 33,
+     pyramiding         = 0,
+     slippage         = 1,  
+     process_orders_on_close      = true,
+     fill_orders_on_standard_ohlc = true,
+     calc_on_order_fills = true,
+     calc_on_every_tick  = false,
+     use_bar_magnifier = true,
+     margin_long  = 100,
+     margin_short = 100,
+     commission_type    = strategy.commission.percent,
+     commission_value   = 0.05)
+
+// ─────────────────────────────────────────────
+// 📌 INPUTS
+// ─────────────────────────────────────────────
+group_ma = "🔹 MEDIAS"
+lenSMA   = input.int(10, "Longitud SMA", minval=1, group=group_ma)
+
+group_risk = "🛡️ Riesgo"
+exitOnOpposite = input.bool(true, "Cerrar por cruce contrario", group=group_risk)
+
+group_app = "🔹 Appearance"
+white = input.color(#FFFFFF, "SMA10", group=group_app)
+
+// ─────────────────────────────────────────────
+// 🧷  CORE
+// ─────────────────────────────────────────────
+sma10 = ta.sma(close, lenSMA)
+
+bullSignal = barstate.isconfirmed and ta.crossover(close, sma10)
+bearSignal = barstate.isconfirmed and ta.crossunder(close, sma10)
+
+// ─────────────────────────────────────────────
+// 🛑 STOP FIJO: vela anterior a la entrada
+// ─────────────────────────────────────────────
+var float longSL  = na
+var float shortSL = na
+
+if bullSignal and strategy.position_size <= 0
+    longSL := low[1]                 
+    strategy.entry("Long", strategy.long)
+
+if bearSignal and strategy.position_size >= 0
+    shortSL := high[1]           
+    strategy.entry("Short", strategy.short)
+
+// Aplicar SL fijo (no se mueve)
+strategy.exit("Long_SL",  from_entry="Long",  stop=longSL)
+strategy.exit("Short_SL", from_entry="Short", stop=shortSL)
+
+// (Opcional) cerrar por cruce contrario, también SOLO al cierre
+if exitOnOpposite and bearSignal
+    strategy.close("Long")
+if exitOnOpposite and bullSignal
+    strategy.close("Short")
