@@ -2,64 +2,94 @@
 // © pmoralesdev
 
 //@version=6
-strategy("SMA10_4H",
-     overlay            = true,
-     initial_capital    = 100000,
-     currency           = currency.EUR,
-     default_qty_type   = strategy.percent_of_equity,
-     default_qty_value  = 33,
-     pyramiding         = 0,
-     slippage         = 1,  
-     process_orders_on_close      = true,
+strategy("SMA10_4H + Trend Filter",
+     overlay = true,
+     initial_capital = 100000,
+     currency = currency.EUR,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 33,
+     pyramiding = 0,
+     slippage = 1,
+     process_orders_on_close = true,
      fill_orders_on_standard_ohlc = true,
-     calc_on_order_fills = true,
-     calc_on_every_tick  = false,
+     calc_on_order_fills = false,      // 👈 clave si quieres decisiones solo al cierre
+     calc_on_every_tick = false,
      use_bar_magnifier = true,
-     margin_long  = 100,
+     margin_long = 100,
      margin_short = 100,
-     commission_type    = strategy.commission.percent,
-     commission_value   = 0.05)
+     commission_type = strategy.commission.percent,
+     commission_value = 0.05
+)
 
 // ─────────────────────────────────────────────
 // 📌 INPUTS
 // ─────────────────────────────────────────────
 group_ma = "🔹 MEDIAS"
-lenSMA   = input.int(10, "Longitud SMA", minval=1, group=group_ma)
+lenSMA   = input.int(10, "Longitud SMA (señal)", minval=1, group=group_ma)
+
+group_filter = "🧭 Filtro de tendencia"
+useTrendFilter = input.bool(true, "Activar filtro SMA mayor", group=group_filter)
+lenTrendSMA    = input.int(200, "Longitud SMA filtro", minval=2, group=group_filter)
+plotTrendSMA   = input.bool(true, "Plot SMA filtro", group=group_filter)
 
 group_risk = "🛡️ Riesgo"
 exitOnOpposite = input.bool(true, "Cerrar por cruce contrario", group=group_risk)
 
 group_app = "🔹 Appearance"
-white = input.color(#FFFFFF, "SMA10", group=group_app)
+white = input.color(#FFFFFF, "SMA señal", group=group_app)
+blue  = input.color(#00BFFF, "SMA filtro", group=group_app)
 
 // ─────────────────────────────────────────────
-// 🧷  CORE
+// 📈 CORE
 // ─────────────────────────────────────────────
-sma10 = ta.sma(close, lenSMA)
+sma10   = ta.sma(close, lenSMA)
+trendMA = ta.sma(close, lenTrendSMA)
 
+// Señales SOLO al cierre
 bullSignal = barstate.isconfirmed and ta.crossover(close, sma10)
 bearSignal = barstate.isconfirmed and ta.crossunder(close, sma10)
 
+// Condición de tendencia
+trendLongOk  = not useTrendFilter or close > trendMA
+trendShortOk = not useTrendFilter or close < trendMA
+
 // ─────────────────────────────────────────────
-// 🛑 STOP FIJO: vela anterior a la entrada
+// 🧷 STOP/TP FIJOS AL ENTRAR + candado 1 entrada por vela
 // ─────────────────────────────────────────────
 var float longSL  = na
 var float shortSL = na
+var float longTP  = na
+var float shortTP = na
+var int   lastEntryBar = na
 
-if bullSignal and strategy.position_size <= 0
-    longSL := low[1]                 
+canEnterThisBar = barstate.isconfirmed and (na(lastEntryBar) or lastEntryBar != bar_index)
+
+// Entradas
+if canEnterThisBar and bullSignal and trendLongOk and strategy.position_size <= 0
+    longSL := low[10]
+    longTP := close + 2 * (close - longSL)
     strategy.entry("Long", strategy.long)
+    lastEntryBar := bar_index
 
-if bearSignal and strategy.position_size >= 0
-    shortSL := high[1]           
+if canEnterThisBar and bearSignal and trendShortOk and strategy.position_size >= 0
+    shortSL := high[10]
+    shortTP := close - 2 * (shortSL - close)
     strategy.entry("Short", strategy.short)
+    lastEntryBar := bar_index
 
-// Aplicar SL fijo (no se mueve)
-strategy.exit("Long_SL",  from_entry="Long",  stop=longSL)
-strategy.exit("Short_SL", from_entry="Short", stop=shortSL)
+// Salidas
+takeProfitEnabled = not exitOnOpposite
+strategy.exit("Long_exit",  from_entry="Long",  stop=longSL,  limit=takeProfitEnabled ? longTP : na)
+strategy.exit("Short_exit", from_entry="Short", stop=shortSL, limit=takeProfitEnabled ? shortTP : na)
 
-// (Opcional) cerrar por cruce contrario, también SOLO al cierre
+// Cierre por cruce contrario (al cierre)
 if exitOnOpposite and bearSignal
     strategy.close("Long")
 if exitOnOpposite and bullSignal
     strategy.close("Short")
+
+// ─────────────────────────────────────────────
+// 🎨 PLOTS
+// ─────────────────────────────────────────────
+plot(sma10, title="SMA señal", color=color.new(white, 0), linewidth=1)
+plot(plotTrendSMA ? trendMA : na, title="SMA filtro", color=color.new(blue, 0), linewidth=2)
