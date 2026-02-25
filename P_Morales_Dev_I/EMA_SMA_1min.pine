@@ -1,0 +1,47 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © pmoralesdev
+
+//@version=6
+indicator("EMA9_SMA_1min", overlay=false)
+
+// ─────────────────────────────────────────────
+// 📌 INPUTS
+// ─────────────────────────────────────────────
+group_ma = "🔹 MEDIAS"
+EMA   = input.int(9, "Longitud EMA (1min)", minval=1, group=group_ma)
+D_SMA = input.int(200, "Longitud SMA D", minval=1, group=group_ma)
+
+group_app = "🔹 Appearance"
+emaColor    = input.color(#FFFFFF, "Color EMA", group=group_app)
+trendColor  = input.color(#00BFFF, "Color SMA", group=group_app)
+signalColor = input.color(#FFFFFF, "Color señales", group=group_app)
+
+// ─────────────────────────────────────────────
+// 📈 CORE
+// ─────────────────────────────────────────────
+ema_cross = ta.ema(close, EMA)
+sma_trend = ta.sma(close, D_SMA)
+
+// Señales SOLO al cierre (cruce EMA vs SMA)
+bullSignal = barstate.isconfirmed and ta.crossover(ema_cross, sma_trend)
+bearSignal = barstate.isconfirmed and ta.crossunder(ema_cross, sma_trend)
+
+// ─────────────────────────────────────────────
+// 🎨 PLOTS
+// ─────────────────────────────────────────────
+plot(ema_cross, title="EMA señal", color=color.new(emaColor, 0), linewidth=2)
+plot(sma_trend, title="SMA tendencia", color=color.new(trendColor, 0), linewidth=2)
+
+plotchar(bullSignal ? ema_cross : na, "BUY", "▲", location.absolute, signalColor, size=size.tiny)
+plotchar(bearSignal ? ema_cross : na, "SELL", "▼", location.absolute, signalColor, size=size.tiny)
+
+// ─────────────────────────────────────────────
+// 🔔 ALERTAS
+// ─────────────────────────────────────────────
+sym = syminfo.ticker
+
+if bullSignal
+    alert(sym + " BUY EMA9 > SMA", alert.freq_once_per_bar_close)
+
+if bearSignal
+    alert(sym + " SELL EMA9 < SMA", alert.freq_once_per_bar_close)
